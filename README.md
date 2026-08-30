@@ -9,7 +9,8 @@ of reusable components. See [DESIGN_DOC.md](DESIGN_DOC.md) for the full design.
 
 ## Status
 
-Implementation steps 1-9 of DESIGN_DOC.md section 24 are complete: repository
+Implementation steps 1-9 of DESIGN_DOC.md section 24 are complete, along with
+the CI matrix from step 7: repository
 structure, pinned SDK submodule, the `BOARD` / `APP` / `PROFILE` CMake model,
 the `minimal` application building for RP2040 and RP2350, the Makefile
 frontend, the component target convention, the host-test harness, and the
@@ -94,6 +95,7 @@ Artifacts land in `build/$BOARD/$APP/$PROFILE/apps/$APP/app_$APP.{elf,uf2,bin,he
 | `reconfigure` | delete and re-configure — needed after editing a profile     |
 | `flash`       | build, then load over USB with `picotool`                    |
 | `test`        | build and run the host-side unit tests                      |
+| `ci`          | everything CI checks: tests plus the whole build matrix      |
 | `size`        | build, then report section sizes                            |
 | `clean`       | remove the selected configuration's build directory          |
 | `distclean`   | remove `build/` entirely                                     |
@@ -174,6 +176,23 @@ tests can compile directly, and the hardware part gets a test application. The
 `cli` component is the clearest example — because it reaches the world only
 through two function pointers, the whole interpreter is exercised on the host
 against a fake stream.
+
+### CI
+
+```bash
+make ci
+```
+
+runs the host tests and builds every board / application / profile combination
+with warnings as errors, reporting flash and RAM per configuration and the
+toolchain and SDK versions that produced them.
+
+The matrix lives in [`scripts/ci.sh`](scripts/ci.sh), not in the workflow file,
+so it has one definition and a failure can be reproduced locally without
+pushing. `.github/workflows/ci.yml` just calls it. `scripts/ci.sh --quick`
+trims the matrix to one board per architecture.
+
+The workflow has not run yet — this repository has no remote.
 
 ### Warnings
 

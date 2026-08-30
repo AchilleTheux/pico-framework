@@ -53,7 +53,7 @@ JOBS ?= $(shell nproc 2>/dev/null || echo 4)
 PICOTOOL ?= picotool
 
 .PHONY: all build configure reconfigure clean distclean flash size apps profiles \
-        test test-build help
+        test test-build ci help
 .DEFAULT_GOAL := all
 
 # --------------------------------------------------------------------------
@@ -139,6 +139,11 @@ test-build: $(HOST_TEST_DIR)/CMakeCache.txt
 test: test-build
 	ctest --test-dir "$(HOST_TEST_DIR)" --output-on-failure
 
+# Everything CI checks: host tests plus the whole build matrix, with warnings
+# as errors. The matrix lives in the script so it has one definition.
+ci:
+	@"$(ROOT)/scripts/ci.sh"
+
 # --------------------------------------------------------------------------
 # Cleaning
 # --------------------------------------------------------------------------
@@ -192,6 +197,7 @@ help:
 	@echo "  flash            build, then load over USB with picotool"
 	@echo "  size             build, then report section sizes"
 	@echo "  test             build and run the host-side unit tests"
+	@echo "  ci               everything CI checks: tests plus the build matrix"
 	@echo "  clean            remove this configuration's build directory"
 	@echo "  distclean        remove build/ entirely"
 	@echo "  apps             list available applications"
