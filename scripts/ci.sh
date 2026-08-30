@@ -31,6 +31,9 @@ MATRIX=(
     "pico2:tests/cli_test:default"
     "pico2:tests/cli_test:uart"
     "pico2_w:tests/cli_test:machine"
+    "pico:tests/half_duplex_uart_test:default"
+    "pico2:tests/half_duplex_uart_test:default"
+    "pico2:tests/half_duplex_uart_test:transceiver"
 )
 
 QUICK_MATRIX=(

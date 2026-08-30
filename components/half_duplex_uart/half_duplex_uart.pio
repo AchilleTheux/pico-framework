@@ -1,0 +1,54 @@
+;
+; Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+;
+; SPDX-License-Identifier: BSD-3-Clause
+;
+; 8N1 UART transmit and receive for a single shared wire.
+;
+; Both programs are from pico-examples. The receiver is unmodified. The
+; transmitter is the half-duplex variant: it drives the line only while a byte
+; is going out (`set pindirs`) and releases it afterwards, so a receiver can
+; share the same pin, and it side-sets a direction signal for boards with a
+; transceiver or level shifter.
+;
+; Both run at 8 execution cycles per bit; see half_duplex_uart_timing.h.
+;
+
+.program half_duplex_uart_tx
+.side_set 1 opt
+
+; SET and OUT map to the data pin; side-set maps to the direction pin.
+
+    pull            side 0 ; idle: line released, transceiver in receive
+    set pindirs, 1  side 1 ; drive the line, transceiver in transmit
+    set x, 7               ; preload bit counter
+    set pins, 0        [7] ; start bit, held for 8 cycles
+bitloop:                   ; 8 data bits, LSB first
+    out pins, 1
+    jmp x-- bitloop   [6]  ; 8 cycles per iteration
+    set pins, 1       [7]  ; stop bit
+    set pindirs, 0         ; release the line; the next pull side-sets the
+                           ; transceiver back to receive
+
+
+.program half_duplex_uart_rx
+
+; 8N1 receive with framing-error handling. IN and JMP both map to the data pin.
+; A byte that does not end in a valid stop bit is dropped rather than pushed,
+; which on a shared wire matters: a collision produces garbage, not silence.
+
+start:
+    wait 0 pin 0        ; stall until the start bit is asserted
+    set x, 7    [10]    ; preload bit counter, delay to the middle of bit 0
+bitloop:
+    in pins, 1          ; sample
+    jmp x-- bitloop [6] ; 8 cycles per iteration
+    jmp pin good_stop   ; stop bit must be high
+
+    irq 4 rel           ; framing error or break: flag it,
+    wait 1 pin 0        ; wait for the line to return to idle,
+    jmp start           ; and drop the byte.
+
+good_stop:
+    push                ; no delay before restarting, to tolerate a slightly
+                        ; fast transmitter

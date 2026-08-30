@@ -17,7 +17,7 @@
 set(PICO_FRAMEWORK_COMPONENTS
     ws2812
     cli
-    # half_duplex_uart
+    half_duplex_uart
     # ax12
     # feetech
     # wifi

@@ -32,6 +32,10 @@ static int test_total_failures;  /* failing checks overall */
 static int test_cases_run;
 static int test_cases_failed;
 
+/* Element count of an array. Named with a trailing underscore to stay clear
+   of the SDK's count_of(), which host tests do not have. */
+#define count_of_(array) (sizeof(array) / sizeof((array)[0]))
+
 #define TEST(name) static void name(void)
 
 #define TEST_FAIL_(fmt, ...)                                                   \

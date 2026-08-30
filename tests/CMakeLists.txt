@@ -92,3 +92,12 @@ host_test(cli_test
 target_include_directories(cli_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/cli/include"
 )
+
+host_test(half_duplex_uart_timing_test
+    SOURCES
+        tests/components/half_duplex_uart_timing_test.c
+        components/half_duplex_uart/half_duplex_uart_timing.c
+)
+target_include_directories(half_duplex_uart_timing_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/half_duplex_uart/include"
+)

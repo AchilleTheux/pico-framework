@@ -9,8 +9,7 @@ of reusable components. See [DESIGN_DOC.md](DESIGN_DOC.md) for the full design.
 
 ## Status
 
-Implementation steps 1-9 of DESIGN_DOC.md section 24 are complete, along with
-the CI matrix from step 7: repository
+Implementation steps 1-10 of DESIGN_DOC.md section 24 are complete: repository
 structure, pinned SDK submodule, the `BOARD` / `APP` / `PROFILE` CMake model,
 the `minimal` application building for RP2040 and RP2350, the Makefile
 frontend, the component target convention, the host-test harness, and the
@@ -20,9 +19,13 @@ first two components.
 |-----------|------------------|
 | [`ws2812`](components/ws2812/) | WS2812 / SK6812 LED strips, RGB and RGBW |
 | [`cli`](components/cli/) | line-oriented command interpreter, transport-agnostic |
+| [`half_duplex_uart`](components/half_duplex_uart/) | 8N1 over one shared wire, for smart-servo buses |
 
-Both have host tests and a hardware test application. Still to come: half-duplex
-UART, AX12, Feetech, WiFi, and the CI build matrix.
+Each has host tests and a hardware test application. `ws2812` and `cli` are
+ported from working firmware; `half_duplex_uart` builds clean for both
+architectures but has **not yet been run against a real servo bus**.
+
+Still to come: AX12, Feetech, and WiFi.
 
 ## Getting started
 
@@ -74,6 +77,7 @@ build/
 ├── pico2/minimal/default/
 ├── pico2/minimal/debug/
 ├── pico2/tests/cli_test/default/
+├── pico2/tests/half_duplex_uart_test/default/
 ├── pico2/tests/ws2812_test/default/
 └── pico2_w/minimal/default/
 ```
@@ -139,6 +143,7 @@ cmake/
 lib/pico-sdk/           Pico SDK, pinned submodule
 components/ws2812/      addressable LED strips
 components/cli/         command interpreter
+components/half_duplex_uart/  single-wire UART for servo buses
 apps/minimal/           the smallest complete application
 apps/tests/             one hardware test application per component
 boards/                 custom Pico SDK board headers
