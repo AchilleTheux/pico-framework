@@ -34,10 +34,12 @@ BUILD_DIR    := $(ROOT)/build/$(BOARD)/$(APP)/$(PROFILE)
 PROFILE_FILE := $(ROOT)/profiles/$(APP)/$(PROFILE).cmake
 SDK_DIR      := $(ROOT)/lib/pico-sdk
 
-# Applications name their target app_<app> (see DESIGN_DOC.md section 9), so
-# the artifacts are predictable from APP alone.
-ELF := $(BUILD_DIR)/apps/$(APP)/app_$(APP).elf
-UF2 := $(BUILD_DIR)/apps/$(APP)/app_$(APP).uf2
+# APP may name a nested directory, e.g. APP=tests/ws2812_test. Applications
+# name their target app_<last path segment> (see DESIGN_DOC.md section 9), so
+# the artifacts stay predictable from APP alone.
+APP_TARGET := app_$(notdir $(APP))
+ELF        := $(BUILD_DIR)/apps/$(APP)/$(APP_TARGET).elf
+UF2        := $(BUILD_DIR)/apps/$(APP)/$(APP_TARGET).uf2
 
 # Prefer Ninja when it is installed; fall back to Make.
 GENERATOR ?= $(shell command -v ninja >/dev/null 2>&1 && echo Ninja || echo "Unix Makefiles")
@@ -50,7 +52,8 @@ JOBS ?= $(shell nproc 2>/dev/null || echo 4)
 
 PICOTOOL ?= picotool
 
-.PHONY: all build configure reconfigure clean distclean flash size apps profiles help
+.PHONY: all build configure reconfigure clean distclean flash size apps profiles \
+        test test-build help
 .DEFAULT_GOAL := all
 
 # --------------------------------------------------------------------------
@@ -71,7 +74,7 @@ define require_app
 		echo "error: no application '$(APP)'"; \
 		echo "       expected: apps/$(APP)/CMakeLists.txt"; \
 		echo "       available:"; \
-		ls -1 "$(ROOT)/apps" 2>/dev/null | sed 's/^/         /'; \
+		$(MAKE) --no-print-directory apps | sed 's/^/         /'; \
 		exit 1; }
 endef
 
@@ -119,6 +122,24 @@ build: configure
 	cmake --build "$(BUILD_DIR)" --parallel $(JOBS)
 
 # --------------------------------------------------------------------------
+# Host tests
+#
+# A separate CMake project built with the host compiler, independent of BOARD,
+# APP and PROFILE. See tests/CMakeLists.txt.
+# --------------------------------------------------------------------------
+
+HOST_TEST_DIR := $(ROOT)/build/host-tests
+
+$(HOST_TEST_DIR)/CMakeCache.txt:
+	cmake -S "$(ROOT)/tests" -B "$(HOST_TEST_DIR)" -G "$(GENERATOR)"
+
+test-build: $(HOST_TEST_DIR)/CMakeCache.txt
+	cmake --build "$(HOST_TEST_DIR)" --parallel $(JOBS)
+
+test: test-build
+	ctest --test-dir "$(HOST_TEST_DIR)" --output-on-failure
+
+# --------------------------------------------------------------------------
 # Cleaning
 # --------------------------------------------------------------------------
 
@@ -151,7 +172,8 @@ size: build
 # --------------------------------------------------------------------------
 
 apps:
-	@ls -1 "$(ROOT)/apps"
+	@cd "$(ROOT)/apps" && find . -name CMakeLists.txt -printf '%h\n' \
+		| sed 's|^\./||' | sort
 
 profiles:
 	@ls -1 "$(ROOT)/profiles/$(APP)"/*.cmake 2>/dev/null \
@@ -169,6 +191,7 @@ help:
 	@echo "  reconfigure      delete and re-configure (after editing a profile)"
 	@echo "  flash            build, then load over USB with picotool"
 	@echo "  size             build, then report section sizes"
+	@echo "  test             build and run the host-side unit tests"
 	@echo "  clean            remove this configuration's build directory"
 	@echo "  distclean        remove build/ entirely"
 	@echo "  apps             list available applications"

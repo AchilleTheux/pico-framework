@@ -15,7 +15,7 @@
 #
 # No components exist yet; they are ported in later implementation steps.
 set(PICO_FRAMEWORK_COMPONENTS
-    # ws2812
+    ws2812
     # cli
     # half_duplex_uart
     # ax12

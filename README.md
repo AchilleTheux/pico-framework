@@ -9,13 +9,15 @@ of reusable components. See [DESIGN_DOC.md](DESIGN_DOC.md) for the full design.
 
 ## Status
 
-Implementation steps 1-5 of DESIGN_DOC.md section 24 are complete: repository
+Implementation steps 1-8 of DESIGN_DOC.md section 24 are complete: repository
 structure, pinned SDK submodule, the `BOARD` / `APP` / `PROFILE` CMake model,
-the `minimal` application building for RP2040 and RP2350, and the Makefile
-frontend.
+the `minimal` application building for RP2040 and RP2350, the Makefile
+frontend, the component target convention, the host-test harness, and the
+first component.
 
-No reusable components exist yet. `components/` is empty and
-`cmake/components.cmake` holds an empty registration list.
+| Component | Status |
+|-----------|--------|
+| [`ws2812`](components/ws2812/) | LED strips, RGB and RGBW, with host tests and a hardware test app |
 
 ## Getting started
 
@@ -62,10 +64,18 @@ Each combination gets its own build directory, so configurations coexist:
 
 ```text
 build/
+├── host-tests/
 ├── pico/minimal/default/
 ├── pico2/minimal/default/
 ├── pico2/minimal/debug/
+├── pico2/tests/ws2812_test/default/
 └── pico2_w/minimal/default/
+```
+
+`APP` may name a nested directory, so hardware tests live under `apps/tests/`:
+
+```bash
+make BOARD=pico2 APP=tests/ws2812_test flash
 ```
 
 Artifacts land in `build/$BOARD/$APP/$PROFILE/apps/$APP/app_$APP.{elf,uf2,bin,hex}`.
@@ -78,6 +88,7 @@ Artifacts land in `build/$BOARD/$APP/$PROFILE/apps/$APP/app_$APP.{elf,uf2,bin,he
 | `configure`   | configure the build directory only                          |
 | `reconfigure` | delete and re-configure — needed after editing a profile     |
 | `flash`       | build, then load over USB with `picotool`                    |
+| `test`        | build and run the host-side unit tests                      |
 | `size`        | build, then report section sizes                            |
 | `clean`       | remove the selected configuration's build directory          |
 | `distclean`   | remove `build/` entirely                                     |
@@ -119,15 +130,41 @@ cmake/
   project_options.cmake framework-wide settings, BOARD/APP/PROFILE plumbing
   components.cmake      explicit registration list for reusable components
 lib/pico-sdk/           Pico SDK, pinned submodule
-components/             reusable components (empty for now)
+components/ws2812/      addressable LED strips
 apps/minimal/           the smallest complete application
+apps/tests/             one hardware test application per component
 boards/                 custom Pico SDK board headers
-profiles/minimal/       initial-cache profiles per application
+profiles/<app>/         initial-cache profiles per application
 config/                 non-secret application defaults that vary by deployment
+tests/                  host-side unit tests (separate CMake project)
 ```
 
 `boards/` is on `PICO_BOARD_HEADER_DIRS`, so `BOARD=` accepts either an SDK
 board or a custom header placed there.
+
+## Testing
+
+Two kinds, matching DESIGN_DOC.md section 19.
+
+**Host tests** cover logic that calls no Pico SDK function — packet encoding,
+checksums, colour maths, command parsing. They build with the host compiler as
+a separate CMake project under `tests/`, with warnings as errors and ASan and
+UBSan on:
+
+```bash
+make test
+```
+
+**Hardware tests** are applications under `apps/tests/`, one per component,
+each with a README giving the required board, wiring, procedure, and expected
+output. They are run manually:
+
+```bash
+make BOARD=pico2 APP=tests/ws2812_test flash
+```
+
+Adding a component means adding both: the pure part goes in a file the host
+tests can compile directly, and the hardware part gets a test application.
 
 ## Secrets
 
@@ -154,7 +191,7 @@ lwIP, mbedTLS, BTstack) needed for wireless boards.
 
 ## Verified builds
 
-The `minimal` application currently builds for:
+`minimal` and `tests/ws2812_test` both build for:
 
 | BOARD      | Platform       | Architecture     |
 |------------|----------------|------------------|
@@ -164,6 +201,5 @@ The `minimal` application currently builds for:
 
 ## Next steps
 
-Implementation continues with DESIGN_DOC.md section 24 step 6 onward: the
-component target convention, the host-test harness and CI matrix, then porting
-WS2812, the CLI, half-duplex UART, AX12, Feetech, and WiFi.
+Implementation continues with DESIGN_DOC.md section 24: the CI build matrix,
+then porting the CLI, half-duplex UART, AX12, Feetech, and WiFi.
