@@ -34,6 +34,11 @@ MATRIX=(
     "pico:tests/half_duplex_uart_test:default"
     "pico2:tests/half_duplex_uart_test:default"
     "pico2:tests/half_duplex_uart_test:transceiver"
+    "pico:tests/servo_test:ax12"
+    "pico2:tests/servo_test:ax12"
+    "pico2:tests/servo_test:feetech_sts"
+    "pico2:tests/servo_test:feetech_scs"
+    "pico2:tests/servo_test:ax12_leds"
 )
 
 QUICK_MATRIX=(

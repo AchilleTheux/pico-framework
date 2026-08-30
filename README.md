@@ -9,7 +9,7 @@ of reusable components. See [DESIGN_DOC.md](DESIGN_DOC.md) for the full design.
 
 ## Status
 
-Implementation steps 1-10 of DESIGN_DOC.md section 24 are complete: repository
+Implementation steps 1-12 of DESIGN_DOC.md section 24 are complete: repository
 structure, pinned SDK submodule, the `BOARD` / `APP` / `PROFILE` CMake model,
 the `minimal` application building for RP2040 and RP2350, the Makefile
 frontend, the component target convention, the host-test harness, and the
@@ -20,12 +20,17 @@ first two components.
 | [`ws2812`](components/ws2812/) | WS2812 / SK6812 LED strips, RGB and RGBW |
 | [`cli`](components/cli/) | line-oriented command interpreter, transport-agnostic |
 | [`half_duplex_uart`](components/half_duplex_uart/) | 8N1 over one shared wire, for smart-servo buses |
+| [`servo_bus`](components/servo_bus/) | Dynamixel Protocol 1.0 packets, transactions, retries |
+| [`ax12`](components/ax12/) | Dynamixel AX-12 / AX-18 control table and operations |
+| [`feetech`](components/feetech/) | Feetech STS / SMS / SCS control table and operations |
 
 Each has host tests and a hardware test application. `ws2812` and `cli` are
-ported from working firmware; `half_duplex_uart` builds clean for both
-architectures but has **not yet been run against a real servo bus**.
+ported from working firmware and exercise their hardware paths; the four servo
+components build clean for both architectures and their protocol handling is
+checked against the AX-12 datasheet by the host tests, but **none of them has
+yet been run against a real servo bus**.
 
-Still to come: AX12, Feetech, and WiFi.
+Still to come: WiFi.
 
 ## Getting started
 
@@ -78,6 +83,7 @@ build/
 ├── pico2/minimal/debug/
 ├── pico2/tests/cli_test/default/
 ├── pico2/tests/half_duplex_uart_test/default/
+├── pico2/tests/servo_test/ax12/
 ├── pico2/tests/ws2812_test/default/
 └── pico2_w/minimal/default/
 ```
@@ -144,6 +150,9 @@ lib/pico-sdk/           Pico SDK, pinned submodule
 components/ws2812/      addressable LED strips
 components/cli/         command interpreter
 components/half_duplex_uart/  single-wire UART for servo buses
+components/servo_bus/   Protocol 1.0 packets and transactions
+components/ax12/        Dynamixel AX-12 servos
+components/feetech/     Feetech STS/SMS/SCS servos
 apps/minimal/           the smallest complete application
 apps/tests/             one hardware test application per component
 boards/                 custom Pico SDK board headers
@@ -181,6 +190,12 @@ tests can compile directly, and the hardware part gets a test application. The
 `cli` component is the clearest example — because it reaches the world only
 through two function pointers, the whole interpreter is exercised on the host
 against a fake stream.
+
+Where a component implements someone else's specification, the tests are
+written against that specification rather than against the implementation:
+`servo_protocol_test.c` checks the packet builder byte for byte against the
+worked examples in the AX-12 datasheet, so a consistent misreading of the
+format cannot pass.
 
 ### CI
 
@@ -249,9 +264,12 @@ Every application builds warning-free with `-Werror` for:
 
 ## Next steps
 
-Implementation continues with DESIGN_DOC.md section 24: the CI build matrix,
-then porting half-duplex UART, AX12, Feetech, and WiFi.
+Implementation continues with DESIGN_DOC.md section 24: profiles justified by
+real configurations, then WiFi, then the documentation on creating a component,
+application, profile and custom board.
 
 The components ported so far come from the `Carte_actionneurs` Eurobot
 firmware, rewritten to the framework's conventions: configuration structures
-instead of `#define` blocks, caller-owned buffers, and no globals.
+instead of `#define` blocks, caller-owned buffers, and no globals. Where that
+firmware had the same code twice — the AX-12 and Feetech packet builders were
+identical line for line — it is now shared through `servo_bus`.

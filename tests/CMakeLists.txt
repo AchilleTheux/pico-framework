@@ -101,3 +101,25 @@ host_test(half_duplex_uart_timing_test
 target_include_directories(half_duplex_uart_timing_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/half_duplex_uart/include"
 )
+
+host_test(servo_protocol_test
+    SOURCES
+        tests/components/servo_protocol_test.c
+        components/servo_bus/servo_protocol.c
+)
+target_include_directories(servo_protocol_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/servo_bus/include"
+)
+
+host_test(servo_registers_test
+    SOURCES
+        tests/components/servo_registers_test.c
+        components/ax12/ax12_registers.c
+        components/feetech/feetech_registers.c
+        components/servo_bus/servo_protocol.c
+)
+target_include_directories(servo_registers_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/ax12/include"
+    "${PICO_FRAMEWORK_ROOT}/components/feetech/include"
+    "${PICO_FRAMEWORK_ROOT}/components/servo_bus/include"
+)
