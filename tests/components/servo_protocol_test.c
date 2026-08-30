@@ -237,6 +237,44 @@ TEST(an_odd_value_width_is_rejected)
  * Parsing
  * -------------------------------------------------------------------------*/
 
+TEST(an_unsuppressed_echo_parses_as_a_plausible_reply)
+{
+    /*
+     * Why half_duplex_uart defaults to consuming the echo.
+     *
+     * On a shared wire the transmitter's own bytes come back. If they are not
+     * consumed, the next read sees the request itself — and a request is a
+     * well-formed packet with a valid checksum, so it parses cleanly as a
+     * status reply from the right servo. The caller gets a confident wrong
+     * answer rather than an error, which is the worst failure mode available.
+     *
+     * Here: a READ of present_position (0x24, 2 bytes) from servo 1, parsed as
+     * though it were the reply.
+     */
+    uint8_t request[SERVO_PROTOCOL_MAX_PACKET_SIZE];
+    size_t written = 0;
+
+    CHECK_EQ_INT(servo_protocol_build_read(request, sizeof(request), &written,
+                                           1, 0x24, 2),
+                 SERVO_PROTOCOL_OK);
+
+    servo_status_packet_t parsed;
+    const servo_protocol_result_t result =
+        servo_protocol_parse_status(request, written, &parsed);
+
+    /* It parses. The checksum is valid because we computed it ourselves. */
+    CHECK_EQ_INT(result, SERVO_PROTOCOL_OK);
+    CHECK_EQ_INT(parsed.id, 1);
+    CHECK_EQ_INT(parsed.param_count, 2);
+
+    /* And it decodes to a position that is entirely in range: 0x0224 = 548,
+       indistinguishable from a servo sitting near the middle of its travel. */
+    const uint32_t bogus_position =
+        servo_protocol_decode_value(parsed.params, 2, SERVO_ENDIAN_LITTLE);
+    CHECK_EQ_U32(bogus_position, 0x0224);
+    CHECK(bogus_position <= 1023); /* plausible for an AX-12, which is the danger */
+}
+
 TEST(a_status_packet_from_the_datasheet_parses)
 {
     /* Reply to reading temperature: servo 1, no error, one byte 0x20 (32 C).
@@ -478,6 +516,7 @@ TEST_MAIN(
     RUN(a_zero_length_read_is_rejected);
     RUN(an_odd_value_width_is_rejected);
 
+    RUN(an_unsuppressed_echo_parses_as_a_plausible_reply);
     RUN(a_status_packet_from_the_datasheet_parses);
     RUN(a_ping_reply_carries_no_parameters);
     RUN(the_error_byte_is_reported);

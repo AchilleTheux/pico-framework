@@ -98,7 +98,7 @@ servo> clear
 | Symptom | Likely cause |
 |---------|--------------|
 | `scan` finds nothing | baud rate mismatch (a factory servo is 1 Mbaud), wiring, or no servo power |
-| `scan` finds every ID | the bus is echoing rather than answering — `receives_own_transmission` does not match the wiring |
+| `scan` finds every ID | the bus is echoing rather than answering — the `echo` setting does not match the wiring |
 | ping works, `read` times out | the servo's status return level is set to answer pings only |
 | positions look plausible but wrong | byte order: an SCS servo on the STS profile turns 2048 into 8 |
 | position reads halve or double | register width — check `regs` against the servo's datasheet |

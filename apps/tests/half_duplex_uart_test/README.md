@@ -7,7 +7,7 @@ Hardware test for the `half_duplex_uart` component.
 **Nothing.** Any RP2040 or RP2350 board, with no wiring at all.
 
 That is the point: on a shared-wire bus the receiver hears the transmitter, so
-running with `receives_own_transmission` off turns the bus into a loopback. The
+running under `HALF_DUPLEX_UART_ECHO_KEEP` turns the bus into a loopback. The
 PIO programs, the clock divider and the line handover are all exercised without
 a servo present.
 

@@ -571,8 +571,9 @@ int main(void)
         .pin = SERVO_TEST_PIN,
         .direction_pin = SERVO_TEST_DIRECTION_PIN,
         .baudrate = SERVO_TEST_BAUDRATE,
-        /* A servo bus shares one pad, so we hear ourselves. */
-        .receives_own_transmission = true,
+        /* A servo bus shares one pad, with or without a level shifter, so we
+           hear our own bytes and must consume them. This is also the default. */
+        .echo = HALF_DUPLEX_UART_ECHO_DISCARD,
     };
 
     const half_duplex_uart_result_t uart_result =

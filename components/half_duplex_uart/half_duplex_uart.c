@@ -35,6 +35,31 @@ static void configure_tx(half_duplex_uart_t *bus)
     pio_gpio_init(bus->pio, bus->pin);
     if (bus->direction_pin >= 0) {
         pio_gpio_init(bus->pio, (uint)bus->direction_pin);
+    }
+
+    /*
+     * Put the data line at its idle level, and the transceiver into receive,
+     * before the state machine ever runs.
+     *
+     * Without this the pin's output register starts at 0, so the first
+     * `set pindirs, 1` of the first byte drives the line low two cycles before
+     * the start bit. That stretches the start bit to 10 cycles instead of 8
+     * and shifts every sample after it by a quarter of a bit — enough to eat
+     * most of the receiver's margin on the first byte after power-up, and
+     * nothing afterwards, because the stop bit leaves the register at 1.
+     *
+     * It only bites when the direction pin is separate. With side-set mapped
+     * to the data pin, the `side 1` writes the value in the same cycle as the
+     * pindirs, so the line goes straight to idle high.
+     */
+    uint32_t pin_mask = 1u << bus->pin;
+    const uint32_t pin_values = 1u << bus->pin; /* data idles high, direction low */
+    if (bus->direction_pin >= 0) {
+        pin_mask |= 1u << (uint)bus->direction_pin;
+    }
+    pio_sm_set_pins_with_mask(bus->pio, bus->sm_tx, pin_values, pin_mask);
+
+    if (bus->direction_pin >= 0) {
         pio_sm_set_consecutive_pindirs(bus->pio, bus->sm_tx,
                                        (uint)bus->direction_pin, 1, true);
     }
@@ -124,7 +149,7 @@ half_duplex_uart_result_t half_duplex_uart_init(half_duplex_uart_t *bus,
         .pin = config->pin,
         .direction_pin = config->direction_pin,
         .baudrate = config->baudrate,
-        .receives_own_transmission = config->receives_own_transmission,
+        .echo = config->echo,
         .timing = timing,
         .initialised = true,
     };
@@ -318,7 +343,7 @@ half_duplex_uart_result_t half_duplex_uart_write(half_duplex_uart_t *bus,
         tight_loop_contents();
     }
 
-    if (!bus->receives_own_transmission) {
+    if (bus->echo == HALF_DUPLEX_UART_ECHO_KEEP) {
         return HALF_DUPLEX_UART_OK;
     }
 

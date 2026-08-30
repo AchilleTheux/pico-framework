@@ -52,6 +52,29 @@ typedef enum {
     HALF_DUPLEX_UART_ERR_OVERFLOW,        /* reply longer than the buffer */
 } half_duplex_uart_result_t;
 
+/*
+ * On a shared wire the receiver hears the transmitter, so every transmitted
+ * byte comes back. This says what to do about that.
+ *
+ * The zero value is DISCARD deliberately, because the two mistakes are not
+ * equally bad. Discarding an echo that never arrives ends in a clean
+ * HALF_DUPLEX_UART_ERR_TIMEOUT from write(). Failing to discard one that does
+ * arrive is far worse: the echoed request is itself a well-formed packet with
+ * a valid checksum, so it parses as a plausible reply and the caller gets
+ * confident nonsense. A zero-initialised config therefore gets the behaviour
+ * that fails loudly.
+ */
+typedef enum {
+    /* Expect the echo and consume it before looking for a reply. Correct for
+       a shared pad, with or without a level shifter. */
+    HALF_DUPLEX_UART_ECHO_DISCARD = 0,
+
+    /* Do not expect an echo: either a transceiver mutes its receiver while
+       driving, or the caller wants to read back what it sent, as the loopback
+       hardware test does. */
+    HALF_DUPLEX_UART_ECHO_KEEP = 1,
+} half_duplex_uart_echo_t;
+
 typedef struct {
     /* PIO block to claim two state machines on. */
     PIO pio;
@@ -69,15 +92,14 @@ typedef struct {
     uint32_t baudrate;
 
     /*
-     * True when the receiver hears the bytes this driver transmits, which is
-     * the case whenever transmit and receive share a pad with nothing to mute
-     * the echo — the common wiring for a servo bus. The driver then discards
-     * exactly as many bytes as it sent before looking for a reply.
-     *
-     * Set false only with a transceiver that disables its receiver while
-     * driving; leaving it true there would eat the first bytes of every reply.
+     * What to do with bytes that arrive while transmitting. The default,
+     * ECHO_DISCARD, is correct for every wiring where transmit and receive
+     * share a pad — which is both the direct connection and the usual
+     * level-shifter arrangement, since the shifter passes our own drive
+     * straight back to the pad. See the enum for why the default is this way
+     * round.
      */
-    bool receives_own_transmission;
+    half_duplex_uart_echo_t echo;
 } half_duplex_uart_config_t;
 
 typedef struct {
@@ -89,7 +111,7 @@ typedef struct {
     uint pin;
     int direction_pin;
     uint32_t baudrate;
-    bool receives_own_transmission;
+    half_duplex_uart_echo_t echo;
     half_duplex_uart_timing_t timing;
     bool initialised;
 } half_duplex_uart_t;
@@ -121,8 +143,10 @@ const half_duplex_uart_timing_t *half_duplex_uart_get_timing(const half_duplex_u
  * Send `len` bytes and return once the last stop bit has left the state
  * machine and the line has been released.
  *
- * When receives_own_transmission is set, the echo of these bytes is discarded
- * before returning, so a following read sees only the reply.
+ * Under HALF_DUPLEX_UART_ECHO_DISCARD the echo of these bytes is consumed
+ * before returning, so a following read sees only the reply. If the echo never
+ * arrives, this reports HALF_DUPLEX_UART_ERR_TIMEOUT rather than leaving a
+ * following read to misinterpret the reply.
  */
 half_duplex_uart_result_t half_duplex_uart_write(half_duplex_uart_t *bus,
                                                  const uint8_t *data, size_t len);

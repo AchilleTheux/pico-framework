@@ -2,8 +2,8 @@
  * half_duplex_uart_test - hardware test for the half_duplex_uart component.
  *
  * The interesting property of a shared-wire bus is that the receiver hears the
- * transmitter. That makes this test self-contained: with
- * receives_own_transmission left off, everything sent comes straight back, so
+ * transmitter. That makes this test self-contained: under
+ * HALF_DUPLEX_UART_ECHO_KEEP everything sent comes straight back, so
  * the PIO programs, the clock divider and the pin handover can all be checked
  * end to end with nothing attached to the pin.
  *
@@ -149,8 +149,7 @@ static void test_patterns(void)
 static void test_echo_suppression(void)
 {
     /*
-     * With receives_own_transmission set, write() is supposed to swallow the
-     * echo. On this wiring there is nothing else on the bus, so a following
+     * Under ECHO_DISCARD, write() is supposed to swallow the echo. On this wiring there is nothing else on the bus, so a following
      * read must find the line silent — if it returns data, suppression is off
      * by some number of bytes and every reply would be shifted.
      */
@@ -161,7 +160,7 @@ static void test_echo_suppression(void)
         .pin = HDX_TEST_PIN,
         .direction_pin = HDX_TEST_DIRECTION_PIN,
         .baudrate = HDX_TEST_BAUDRATE,
-        .receives_own_transmission = true,
+        .echo = HALF_DUPLEX_UART_ECHO_DISCARD,
     };
 
     const half_duplex_uart_result_t init = half_duplex_uart_init(&bus, &config);
@@ -242,7 +241,9 @@ int main(void)
             .pin = HDX_TEST_PIN,
             .direction_pin = HDX_TEST_DIRECTION_PIN,
             .baudrate = HDX_TEST_BAUDRATE,
-            .receives_own_transmission = false,
+            /* Keep the echo: on a shared pad that turns the bus into a
+               loopback, which is what makes this test need no wiring. */
+            .echo = HALF_DUPLEX_UART_ECHO_KEEP,
         };
 
         const half_duplex_uart_result_t init = half_duplex_uart_init(&bus, &config);

@@ -7,6 +7,25 @@ line carries both directions and the host always speaks first. It is the shared
 transport the `ax12` and `feetech` components are meant to sit on, so neither
 has to reimplement bit timing or line turnaround.
 
+## With or without a level shifter
+
+The direction pin is optional, and independent of which servo family is on the
+bus:
+
+| Wiring | `direction_pin` |
+|--------|-----------------|
+| GPIO straight to the servo data line | `HALF_DUPLEX_UART_NO_DIRECTION_PIN` |
+| Through a bidirectional level shifter or transceiver | the GPIO steering it — driven high while transmitting, low while receiving |
+
+Both work with `ax12` and with `feetech`. The firmware this was ported from
+happened to use a shifter for its AX-12 bus and none for its Feetech bus, and
+had a *separate PIO program* for each. Here it is one program and one config
+field, so the choice follows the board rather than the servo brand.
+
+Side-set carries the direction signal. With no direction pin it maps to the
+data pin instead, where the levels it drives are the ones the line should be at
+anyway.
+
 ## How the wire is shared
 
 The transmit program takes the line only while a byte is going out and releases
@@ -22,21 +41,32 @@ it afterwards:
 Both state machines are mapped to the same pad, so the receiver is listening
 the whole time — including while we transmit.
 
-## The echo, and why it is a config flag
+## The echo, and why the default is what it is
 
-On the usual wiring, the receiver hears every byte the transmitter sends. The
-driver handles it, but which behaviour is right depends on the board, so it is
-explicit:
+Both state machines sit on the same pad, so the receiver hears every byte the
+transmitter sends. That is true **with or without a level shifter**: a
+bidirectional shifter passes our own drive straight back to the pad.
 
-| `receives_own_transmission` | For |
+| `echo` | For |
 |---|---|
-| `true` | transmit and receive share a pad with nothing muting the echo — the common servo-bus wiring. `write()` waits for exactly as many bytes as it sent and discards them, so a following `read()` sees only the reply. |
-| `false` | a transceiver that disables its receiver while driving. Leaving this `true` there would eat the first bytes of every reply. |
+| `HALF_DUPLEX_UART_ECHO_DISCARD` (default, 0) | any wiring where transmit and receive share a pad — direct, or through a level shifter. `write()` waits for exactly as many bytes as it sent and consumes them, so a following `read()` sees only the reply. |
+| `HALF_DUPLEX_UART_ECHO_KEEP` | a transceiver that mutes its receiver while driving, or a caller that wants to read back what it sent — which is what makes the loopback hardware test need no wiring. |
+
+The zero value is `DISCARD` deliberately, because the two mistakes are not
+equally bad:
+
+* Discarding an echo that never arrives ends in a clean
+  `HALF_DUPLEX_UART_ERR_TIMEOUT` from `write()`.
+* **Failing to discard one that does arrive is far worse.** The echoed request
+  is itself a well-formed packet with a valid checksum, so it parses as a
+  plausible status reply and the caller gets confident nonsense rather than an
+  error. A host test in `servo_protocol_test.c` demonstrates this.
+
+So a zero-initialised config gets the behaviour that fails loudly.
 
 The echo is *waited for*, not cleared blindly: the last byte may still be in
 flight when the state machine goes idle, and clearing the FIFO then would drop
-the first byte of the reply instead. If the echo never arrives, `write()`
-returns `HALF_DUPLEX_UART_ERR_TIMEOUT` rather than handing back a shifted reply.
+the first byte of the reply instead.
 
 ## Contracts
 
@@ -81,7 +111,7 @@ const half_duplex_uart_config_t config = {
     .pin = 21,                       /* from the board header */
     .direction_pin = 27,             /* or HALF_DUPLEX_UART_NO_DIRECTION_PIN */
     .baudrate = 1000000,
-    .receives_own_transmission = true,
+    .echo = HALF_DUPLEX_UART_ECHO_DISCARD,   /* the default */
 };
 
 if (half_duplex_uart_init(&bus, &config) != HALF_DUPLEX_UART_OK) {
@@ -121,7 +151,10 @@ together with room left over.
 * **GPIO base on RP2350B.** For pins above GPIO 31, set the PIO block's GPIO
   base before `init()`.
 * **No direction pin?** Side-set still has to map somewhere, so it maps to the
-  data pin, where the values it drives match what the line does anyway.
+  data pin, where the values it drives (idle high before the start bit) are
+  what the line should be doing anyway. This is the wiring with no level
+  shifter at all, and it is fully supported — pass
+  `HALF_DUPLEX_UART_NO_DIRECTION_PIN`.
 
 ## Testing
 
