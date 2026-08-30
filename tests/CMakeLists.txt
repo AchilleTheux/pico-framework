@@ -83,3 +83,12 @@ host_test(ws2812_color_test
 target_include_directories(ws2812_color_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/ws2812/include"
 )
+
+host_test(cli_test
+    SOURCES
+        tests/components/cli_test.c
+        components/cli/cli.c
+)
+target_include_directories(cli_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/cli/include"
+)

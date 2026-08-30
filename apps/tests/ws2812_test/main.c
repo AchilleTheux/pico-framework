@@ -12,7 +12,7 @@
 
 #include "ws2812.h"
 
-/* Overridable from profiles/tests/ws2812_test/*.cmake. */
+/* Overridable from the profiles under profiles/tests/ws2812_test. */
 #ifndef WS2812_TEST_PIN
 #define WS2812_TEST_PIN 10
 #endif

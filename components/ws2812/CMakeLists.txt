@@ -12,6 +12,8 @@ target_include_directories(pico_framework_ws2812 PUBLIC
 )
 
 # Generates ws2812.pio.h into the build tree and puts it on the include path.
+pico_framework_set_warnings(ws2812.c ws2812_color.c)
+
 pico_generate_pio_header(pico_framework_ws2812
     ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio
 )

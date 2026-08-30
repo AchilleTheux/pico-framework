@@ -1,0 +1,118 @@
+# cli
+
+A line-oriented command interpreter for debugging and hardware bring-up.
+
+## What it does
+
+* Command table with case-insensitive names, per-command `user_data`, and a
+  built-in `help` / `?`.
+* Argument parsing: unsigned, signed, hex, float, tokens, and free text.
+* Line editing: backspace and delete, optional echo, optional prompt.
+* Never blocks, never allocates. `cli_poll()` takes whatever the transport has
+  and returns.
+
+## The transport split
+
+The interpreter reads and writes through two function pointers:
+
+```c
+typedef struct {
+    int  (*read)(void *ctx);                        /* -1 when nothing waiting */
+    void (*write)(void *ctx, const char *data, size_t len);
+    void *ctx;
+} cli_stream_t;
+```
+
+`cli.c` therefore calls no Pico SDK function at all. That is what
+DESIGN_DOC.md section 8 asks for, and it buys two concrete things:
+
+1. **The same interpreter runs anywhere.** `cli_stream_stdio()` and
+   `cli_stream_uart()` ship today; a TCP stream is a third implementation of
+   the same two functions, with no change to the parser.
+2. **The interpreter is unit-testable.** `tests/components/cli_test.c` drives
+   the real parser against a fake stream that scripts input and captures
+   output, so dispatch, line editing and every argument type are covered on the
+   host rather than by typing at a terminal.
+
+## Usage
+
+```c
+#include "cli.h"
+#include "cli_stream.h"
+
+static int cmd_led(cli_t *cli, void *user_data)
+{
+    uint32_t on;
+    if (!cli_next_u32(cli, &on)) {
+        cli_write(cli, "usage: led <0|1>\r\n");
+        return CLI_ERR_ARG;
+    }
+    gpio_put(LED_PIN, on != 0);
+    return CLI_OK;
+}
+
+static const cli_command_t commands[] = {
+    { "led", "led <0|1>", cmd_led, NULL },
+};
+
+static char line[128];
+static cli_t cli;
+
+const cli_config_t config = {
+    .commands = commands,
+    .command_count = count_of(commands),
+    .stream = cli_stream_stdio(),
+    .line_buffer = line,            /* caller-owned, like every buffer here */
+    .line_buffer_size = sizeof(line),
+    .prompt = "> ",
+    .echo = true,
+    .enable_help = true,
+};
+
+cli_init(&cli, &config);
+
+while (true) {
+    cli_poll(&cli);     /* runs any complete command, then returns */
+    /* ... the rest of the main loop ... */
+}
+```
+
+Link it from the application:
+
+```cmake
+target_link_libraries(app_my_firmware PRIVATE pico_framework::cli)
+```
+
+## Contracts worth knowing
+
+| Behaviour | Rationale |
+|-----------|-----------|
+| A handler runs to completion inside `cli_feed_char()` | keeps the interpreter free of a state machine; handlers must return promptly rather than spin |
+| An overlong line is rejected, not truncated | truncating could silently run a *different*, valid command |
+| An argument must consume its whole token | `12abc` is an error, not `12` |
+| Arguments split on space, tab, comma or semicolon | matches the comma style the original Eurobot interpreter used |
+| Control characters are dropped | they would otherwise corrupt token boundaries and the echo |
+| `cli_poll()` stops after `CLI_POLL_BUDGET` characters | a chatty peer cannot starve the rest of the main loop |
+| `cli_rest()` consumes the remainder | so it must be the last argument read |
+| Returned tokens point into the line buffer | valid until the next character is fed |
+
+## Error reporting
+
+A handler returns 0 for success. Anything else is printed as `error <n>`.
+`cli_status_t` names the common cases (`CLI_ERR_ARG`, `CLI_ERR_RANGE`,
+`CLI_ERR_STATE`, `CLI_ERR_FAILED`); handlers may return their own codes.
+
+## Choosing a transport
+
+| Transport | When |
+|-----------|------|
+| `cli_stream_stdio()` | the default. Follows `pico_enable_stdio_usb/uart`. Note that `printf()` elsewhere shares the same output. |
+| `cli_stream_uart(uart1)` | the CLI needs its own port — for example while `printf()` goes to USB, or when USB is unavailable |
+
+Both are non-blocking on read and blocking on write. The caller configures and
+owns the UART; the transport only reads and writes it.
+
+## Testing
+
+* Host: `make test` covers dispatch, line editing, and every argument type.
+* Hardware: `make APP=tests/cli_test flash` — see that test's README.

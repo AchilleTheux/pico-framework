@@ -9,15 +9,19 @@ of reusable components. See [DESIGN_DOC.md](DESIGN_DOC.md) for the full design.
 
 ## Status
 
-Implementation steps 1-8 of DESIGN_DOC.md section 24 are complete: repository
+Implementation steps 1-9 of DESIGN_DOC.md section 24 are complete: repository
 structure, pinned SDK submodule, the `BOARD` / `APP` / `PROFILE` CMake model,
 the `minimal` application building for RP2040 and RP2350, the Makefile
 frontend, the component target convention, the host-test harness, and the
-first component.
+first two components.
 
-| Component | Status |
-|-----------|--------|
-| [`ws2812`](components/ws2812/) | LED strips, RGB and RGBW, with host tests and a hardware test app |
+| Component | What it provides |
+|-----------|------------------|
+| [`ws2812`](components/ws2812/) | WS2812 / SK6812 LED strips, RGB and RGBW |
+| [`cli`](components/cli/) | line-oriented command interpreter, transport-agnostic |
+
+Both have host tests and a hardware test application. Still to come: half-duplex
+UART, AX12, Feetech, WiFi, and the CI build matrix.
 
 ## Getting started
 
@@ -68,6 +72,7 @@ build/
 ├── pico/minimal/default/
 ├── pico2/minimal/default/
 ├── pico2/minimal/debug/
+├── pico2/tests/cli_test/default/
 ├── pico2/tests/ws2812_test/default/
 └── pico2_w/minimal/default/
 ```
@@ -131,6 +136,7 @@ cmake/
   components.cmake      explicit registration list for reusable components
 lib/pico-sdk/           Pico SDK, pinned submodule
 components/ws2812/      addressable LED strips
+components/cli/         command interpreter
 apps/minimal/           the smallest complete application
 apps/tests/             one hardware test application per component
 boards/                 custom Pico SDK board headers
@@ -164,7 +170,25 @@ make BOARD=pico2 APP=tests/ws2812_test flash
 ```
 
 Adding a component means adding both: the pure part goes in a file the host
-tests can compile directly, and the hardware part gets a test application.
+tests can compile directly, and the hardware part gets a test application. The
+`cli` component is the clearest example — because it reaches the world only
+through two function pointers, the whole interpreter is exercised on the host
+against a fake stream.
+
+### Warnings
+
+Framework and application sources build with `-Wall -Wextra -Wshadow -Wundef`
+via `pico_framework_set_warnings()`. Configure with
+`-DPICO_FRAMEWORK_WARNINGS_AS_ERRORS=ON` to make them fatal, as CI should:
+
+```bash
+make CMAKE_ARGS=-DPICO_FRAMEWORK_WARNINGS_AS_ERRORS=ON
+```
+
+The flags are set per source file rather than per target on purpose. Most Pico
+SDK libraries are INTERFACE targets carrying sources, so linking `pico_stdlib`
+compiles SDK `.c` files into your target; a target-level flag would land on SDK
+code too, and `-Wundef` fails to build it.
 
 ## Secrets
 
@@ -191,7 +215,7 @@ lwIP, mbedTLS, BTstack) needed for wireless boards.
 
 ## Verified builds
 
-`minimal` and `tests/ws2812_test` both build for:
+Every application builds warning-free with `-Werror` for:
 
 | BOARD      | Platform       | Architecture     |
 |------------|----------------|------------------|
@@ -202,4 +226,8 @@ lwIP, mbedTLS, BTstack) needed for wireless boards.
 ## Next steps
 
 Implementation continues with DESIGN_DOC.md section 24: the CI build matrix,
-then porting the CLI, half-duplex UART, AX12, Feetech, and WiFi.
+then porting half-duplex UART, AX12, Feetech, and WiFi.
+
+The components ported so far come from the `Carte_actionneurs` Eurobot
+firmware, rewritten to the framework's conventions: configuration structures
+instead of `#define` blocks, caller-owned buffers, and no globals.

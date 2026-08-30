@@ -24,4 +24,6 @@ target_link_libraries(app_ws2812_test PRIVATE
 pico_enable_stdio_usb(app_ws2812_test 1)
 pico_enable_stdio_uart(app_ws2812_test 1)
 
+pico_framework_set_warnings(main.c)
+
 pico_add_extra_outputs(app_ws2812_test)
