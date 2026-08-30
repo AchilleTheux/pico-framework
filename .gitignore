@@ -1,0 +1,12 @@
+# Configuration-specific build directories created by the Makefile frontend.
+build/
+
+# Local, uncommitted configuration (e.g. WiFi credentials). See README.
+config/local.cmake
+
+# Editor and tooling noise
+.cache/
+compile_commands.json
+.vscode/
+.idea/
+*.swp

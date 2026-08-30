@@ -1,0 +1,185 @@
+# pico-framework - developer frontend to CMake.
+#
+# CMake remains the real build system: this Makefile only selects a build
+# directory and forwards to it. It deliberately contains no dependency or
+# compilation logic of its own.
+#
+# A build is identified by three variables:
+#
+#   BOARD    hardware, passed through to the Pico SDK as PICO_BOARD
+#   APP      the application under apps/ to build
+#   PROFILE  the initial CMake cache under profiles/$(APP)/
+#
+# Each combination gets its own build directory, so configurations coexist
+# instead of fighting over one CMake cache.
+#
+#   make                                              # the defaults below
+#   make BOARD=pico2 APP=minimal PROFILE=debug
+#   make BOARD=pico2 APP=minimal PROFILE=debug flash
+#
+# Make variables do not persist between invocations: every command for a
+# non-default configuration must repeat all three values. In particular a bare
+# `make flash` always means the default configuration.
+
+BOARD   ?= pico
+APP     ?= minimal
+PROFILE ?= default
+
+# --------------------------------------------------------------------------
+# Paths
+# --------------------------------------------------------------------------
+
+ROOT         := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+BUILD_DIR    := $(ROOT)/build/$(BOARD)/$(APP)/$(PROFILE)
+PROFILE_FILE := $(ROOT)/profiles/$(APP)/$(PROFILE).cmake
+SDK_DIR      := $(ROOT)/lib/pico-sdk
+
+# Applications name their target app_<app> (see DESIGN_DOC.md section 9), so
+# the artifacts are predictable from APP alone.
+ELF := $(BUILD_DIR)/apps/$(APP)/app_$(APP).elf
+UF2 := $(BUILD_DIR)/apps/$(APP)/app_$(APP).uf2
+
+# Prefer Ninja when it is installed; fall back to Make.
+GENERATOR ?= $(shell command -v ninja >/dev/null 2>&1 && echo Ninja || echo "Unix Makefiles")
+
+# Extra flags forwarded to the configure step, e.g. CMAKE_ARGS=-DFOO=ON
+CMAKE_ARGS ?=
+
+# Parallel build jobs.
+JOBS ?= $(shell nproc 2>/dev/null || echo 4)
+
+PICOTOOL ?= picotool
+
+.PHONY: all build configure reconfigure clean distclean flash size apps profiles help
+.DEFAULT_GOAL := all
+
+# --------------------------------------------------------------------------
+# Preconditions
+# --------------------------------------------------------------------------
+
+# Checked by the goals that need them rather than at parse time, so `make help`
+# works in a fresh clone.
+define require_sdk
+	@test -f "$(SDK_DIR)/pico_sdk_init.cmake" || { \
+		echo "error: Pico SDK missing at $(SDK_DIR)"; \
+		echo "       run: git submodule update --init --recursive"; \
+		exit 1; }
+endef
+
+define require_app
+	@test -f "$(ROOT)/apps/$(APP)/CMakeLists.txt" || { \
+		echo "error: no application '$(APP)'"; \
+		echo "       expected: apps/$(APP)/CMakeLists.txt"; \
+		echo "       available:"; \
+		ls -1 "$(ROOT)/apps" 2>/dev/null | sed 's/^/         /'; \
+		exit 1; }
+endef
+
+define require_profile
+	@test -f "$(PROFILE_FILE)" || { \
+		echo "error: no profile '$(PROFILE)' for app '$(APP)'"; \
+		echo "       expected: profiles/$(APP)/$(PROFILE).cmake"; \
+		echo "       available:"; \
+		ls -1 "$(ROOT)/profiles/$(APP)"/*.cmake 2>/dev/null \
+			| sed 's|.*/||;s/\.cmake$$//;s/^/         /' \
+			| grep . || echo "         (none - profiles/$(APP)/ has no profiles)"; \
+		exit 1; }
+endef
+
+# --------------------------------------------------------------------------
+# Configure and build
+# --------------------------------------------------------------------------
+
+all: build
+
+# Configure on first use only. The profile is an initial cache (`cmake -C`),
+# which applies when the cache is created; changing BOARD, APP or PROFILE
+# selects a different build directory rather than reusing an incompatible one.
+$(BUILD_DIR)/CMakeCache.txt:
+	$(require_sdk)
+	$(require_app)
+	$(require_profile)
+	cmake -S "$(ROOT)" -B "$(BUILD_DIR)" -G "$(GENERATOR)" \
+		-C "$(PROFILE_FILE)" \
+		-DPICO_BOARD=$(BOARD) \
+		-DPICO_FRAMEWORK_APP=$(APP) \
+		-DPICO_FRAMEWORK_PROFILE=$(PROFILE) \
+		$(CMAKE_ARGS)
+
+configure: $(BUILD_DIR)/CMakeCache.txt
+
+# Discard this configuration's cache and configure it again. Needed after
+# editing the profile, since an initial cache is only applied to a fresh cache.
+reconfigure:
+	rm -rf "$(BUILD_DIR)"
+	$(MAKE) configure BOARD=$(BOARD) APP=$(APP) PROFILE=$(PROFILE)
+
+# CMake decides what is out of date; this target never inspects sources.
+build: configure
+	cmake --build "$(BUILD_DIR)" --parallel $(JOBS)
+
+# --------------------------------------------------------------------------
+# Cleaning
+# --------------------------------------------------------------------------
+
+# Removes the selected configuration only. Other configurations survive.
+clean:
+	@test -d "$(BUILD_DIR)" \
+		&& { echo "removing $(BUILD_DIR)"; rm -rf "$(BUILD_DIR)"; } \
+		|| echo "nothing to clean at $(BUILD_DIR)"
+
+# Removes every configuration.
+distclean:
+	rm -rf "$(ROOT)/build"
+
+# --------------------------------------------------------------------------
+# Flashing and inspection
+# --------------------------------------------------------------------------
+
+# Loads the selected configuration's UF2 over USB. -f puts a running board
+# into BOOTSEL first; -x starts the firmware afterwards.
+flash: build
+	@command -v $(PICOTOOL) >/dev/null 2>&1 || { \
+		echo "error: $(PICOTOOL) not found in PATH"; exit 1; }
+	$(PICOTOOL) load -f -x "$(UF2)"
+
+size: build
+	@arm-none-eabi-size "$(ELF)"
+
+# --------------------------------------------------------------------------
+# Discovery
+# --------------------------------------------------------------------------
+
+apps:
+	@ls -1 "$(ROOT)/apps"
+
+profiles:
+	@ls -1 "$(ROOT)/profiles/$(APP)"/*.cmake 2>/dev/null \
+		| sed 's|.*/||;s/\.cmake$$//' \
+		| grep . || echo "(no profiles for app '$(APP)')"
+
+help:
+	@echo "pico-framework"
+	@echo ""
+	@echo "usage: make [BOARD=<board>] [APP=<app>] [PROFILE=<profile>] [target]"
+	@echo ""
+	@echo "targets:"
+	@echo "  build (default)  configure if needed, then build"
+	@echo "  configure        configure the build directory only"
+	@echo "  reconfigure      delete and re-configure (after editing a profile)"
+	@echo "  flash            build, then load over USB with picotool"
+	@echo "  size             build, then report section sizes"
+	@echo "  clean            remove this configuration's build directory"
+	@echo "  distclean        remove build/ entirely"
+	@echo "  apps             list available applications"
+	@echo "  profiles         list profiles for APP"
+	@echo ""
+	@echo "current configuration:"
+	@echo "  BOARD     = $(BOARD)"
+	@echo "  APP       = $(APP)"
+	@echo "  PROFILE   = $(PROFILE)"
+	@echo "  build dir = build/$(BOARD)/$(APP)/$(PROFILE)"
+	@echo "  generator = $(GENERATOR)"
+	@echo ""
+	@echo "note: make variables do not persist between invocations; repeat all"
+	@echo "      three for every command, including flash."
