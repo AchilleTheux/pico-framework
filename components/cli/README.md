@@ -83,6 +83,45 @@ Link it from the application:
 target_link_libraries(app_my_firmware PRIVATE pico_framework::cli)
 ```
 
+## Sharing the line with something that is not a command
+
+Some things arriving on the console are not commands at all. A firmware image
+sent as Intel HEX is a stream of lines beginning with `:`, and without a hook
+each one would be answered with `unknown command`.
+
+An optional line filter is consulted for every non-blank line *before* command
+lookup. Returning true means the line has been dealt with:
+
+```c
+static bool take_hex_records(cli_t *cli, const char *line, void *user_data)
+{
+    if (line[0] != ':') {
+        return false;          /* not ours; let it dispatch as a command */
+    }
+    firmware_receive_line(user_data, line);
+    return true;
+}
+
+const cli_config_t config = {
+    /* ... */
+    .line_filter = take_hex_records,
+    .line_filter_user_data = &receiver,
+};
+```
+
+That lets an upload and the ordinary commands share one console, rather than
+needing a separate mode or a second port.
+
+Two details the tests pin down:
+
+* The filter sees the line **before tokenising**, which cuts terminators into
+  the buffer as it splits arguments. Running it afterwards would show it only
+  the first word.
+* A line holding nothing but separators is discarded **before** the filter, so
+  "blank" means one thing throughout: a filter counting records is never handed
+  whitespace noise off a serial link, just as dispatch never reports it as an
+  unknown command.
+
 ## Contracts worth knowing
 
 | Behaviour | Rationale |

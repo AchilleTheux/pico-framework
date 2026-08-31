@@ -59,6 +59,21 @@ typedef enum {
 
 typedef int (*cli_command_fn)(cli_t *cli, void *user_data);
 
+/*
+ * Consulted for every complete line *before* it is looked up as a command.
+ * Return true when the line has been dealt with, and dispatch is skipped.
+ *
+ * This exists because some things arriving on the same link are not commands
+ * at all. A firmware image sent as Intel HEX is a stream of lines beginning
+ * with ':', and without a hook each one would be reported as an unknown
+ * command. A filter that claims those lines lets an upload share the console
+ * with the CLI instead of needing a separate mode or a second port.
+ *
+ * `line` is the whole line, NUL-terminated, before any tokenising — so the
+ * filter sees it exactly as typed, spacing included. It must not be modified.
+ */
+typedef bool (*cli_line_filter_fn)(cli_t *cli, const char *line, void *user_data);
+
 typedef struct {
     /* Matched case-insensitively. Must be non-empty. */
     const char *name;
@@ -103,6 +118,13 @@ typedef struct {
 
     /* Provide the built-in `help` / `?` command. */
     bool enable_help;
+
+    /*
+     * Optional. Called for each non-blank line before command lookup; see
+     * cli_line_filter_fn. NULL leaves every line to ordinary dispatch.
+     */
+    cli_line_filter_fn line_filter;
+    void *line_filter_user_data;
 } cli_config_t;
 
 typedef enum {
@@ -122,6 +144,8 @@ struct cli {
     const char *prompt;
     bool echo;
     bool enable_help;
+    cli_line_filter_fn line_filter;
+    void *line_filter_user_data;
     bool initialised;
 };
 

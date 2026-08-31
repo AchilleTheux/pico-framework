@@ -158,6 +158,41 @@ static const cli_command_t g_commands[] = {
     { "null",  "no handler",          NULL,           NULL },
 };
 
+/* What the line filter saw, and what it should do about it. */
+static struct {
+    int calls;
+    char last_line[128];
+    void *user_data;
+    bool consume;
+} g_filter;
+
+static int g_filter_marker;
+
+static bool filter_records(cli_t *cli, const char *line, void *user_data)
+{
+    (void)cli;
+    g_filter.calls++;
+    g_filter.user_data = user_data;
+    snprintf(g_filter.last_line, sizeof(g_filter.last_line), "%s", line);
+    return g_filter.consume;
+}
+
+/* The realistic one: claim Intel HEX records, leave everything else alone. */
+static bool filter_hex_records(cli_t *cli, const char *line, void *user_data)
+{
+    (void)cli;
+    (void)user_data;
+    if (line[0] != ':') {
+        return false;
+    }
+    g_filter.calls++;
+    snprintf(g_filter.last_line, sizeof(g_filter.last_line), "%s", line);
+    return true;
+}
+
+static void setup_with_filter(bool echo, bool enable_help,
+                              cli_line_filter_fn filter, void *user_data);
+
 static void setup(bool echo, bool enable_help)
 {
     memset(&g_stream, 0, sizeof(g_stream));
@@ -173,6 +208,30 @@ static void setup(bool echo, bool enable_help)
         .prompt = "> ",
         .echo = echo,
         .enable_help = enable_help,
+    };
+
+    CHECK_EQ_INT(cli_init(&g_cli, &config), CLI_INIT_OK);
+}
+
+static void setup_with_filter(bool echo, bool enable_help,
+                              cli_line_filter_fn filter, void *user_data)
+{
+    memset(&g_stream, 0, sizeof(g_stream));
+    memset(&g_seen, 0, sizeof(g_seen));
+    memset(&g_filter, 0, sizeof(g_filter));
+    memset(g_line, 0, sizeof(g_line));
+
+    const cli_config_t config = {
+        .commands = g_commands,
+        .command_count = sizeof(g_commands) / sizeof(g_commands[0]),
+        .stream = { .read = fake_read, .write = fake_write, .ctx = &g_stream },
+        .line_buffer = g_line,
+        .line_buffer_size = sizeof(g_line),
+        .prompt = "> ",
+        .echo = echo,
+        .enable_help = enable_help,
+        .line_filter = filter,
+        .line_filter_user_data = user_data,
     };
 
     CHECK_EQ_INT(cli_init(&g_cli, &config), CLI_INIT_OK);
@@ -605,6 +664,130 @@ TEST(init_accepts_an_empty_command_table)
     CHECK_EQ_INT(cli_init(&cli, &config), CLI_INIT_OK);
 }
 
+/* ---------------------------------------------------------------------------
+ * The line filter
+ *
+ * Its reason for existing: a firmware image arrives as a stream of Intel HEX
+ * records on the same link as the CLI, and without a hook each one would be
+ * answered with "unknown command".
+ * -------------------------------------------------------------------------*/
+
+TEST(without_a_filter_a_hex_record_is_an_unknown_command)
+{
+    /* The behaviour the hook exists to change; worth pinning so the default
+       stays as it was. */
+    setup(false, false);
+    feed(":020000041000EA\n");
+    CHECK(output_contains("unknown command"));
+}
+
+TEST(a_filter_that_consumes_a_line_prevents_dispatch)
+{
+    setup_with_filter(false, false, filter_hex_records, NULL);
+
+    feed(":020000041000EA\n");
+    CHECK_EQ_INT(g_filter.calls, 1);
+    CHECK(!output_contains("unknown command"));
+    CHECK_EQ_INT(g_seen.calls, 0);
+}
+
+TEST(a_filter_that_declines_leaves_the_line_to_be_dispatched)
+{
+    setup_with_filter(false, false, filter_hex_records, NULL);
+
+    feed("noop\n");
+    CHECK_EQ_INT(g_seen.calls, 1);
+    CHECK(!output_contains("unknown command"));
+}
+
+TEST(the_filter_sees_every_line_when_it_declines_them)
+{
+    setup_with_filter(false, false, filter_records, NULL);
+    g_filter.consume = false;
+
+    feed("noop\n");
+    feed("nosuchthing\n");
+
+    CHECK_EQ_INT(g_filter.calls, 2);
+    CHECK_EQ_INT(g_seen.calls, 1);          /* dispatch still happened */
+    CHECK(output_contains("unknown command"));
+}
+
+TEST(the_filter_sees_the_line_before_it_is_tokenised)
+{
+    /*
+     * Dispatch cuts terminators into the buffer as it splits tokens, so the
+     * filter has to run first or it would see only the first word. A HEX
+     * record contains no separators, but a filter for anything else would.
+     */
+    setup_with_filter(false, false, filter_records, NULL);
+    g_filter.consume = true;
+
+    feed("some raw text, with separators\n");
+    CHECK_EQ_STR(g_filter.last_line, "some raw text, with separators");
+}
+
+TEST(the_filter_receives_its_user_data)
+{
+    setup_with_filter(false, false, filter_records, &g_filter_marker);
+    g_filter.consume = true;
+
+    feed("anything\n");
+    CHECK(g_filter.user_data == &g_filter_marker);
+}
+
+TEST(the_filter_is_not_called_for_blank_lines)
+{
+    /* A terminal sending CRLF, or a stray newline on a noisy link, must not
+       reach a filter that is counting records. */
+    setup_with_filter(false, false, filter_records, NULL);
+    g_filter.consume = true;
+
+    feed("\n");
+    feed("\r\n");
+    feed("   \n");
+    feed(" ,; \n");   /* separators only, which dispatch also calls blank */
+
+    CHECK_EQ_INT(g_filter.calls, 0);
+}
+
+TEST(the_filter_runs_ahead_of_the_built_in_help)
+{
+    /* The filter is consulted before anything else, help included, so a
+       transfer cannot be derailed by a record that happens to spell a command. */
+    setup_with_filter(false, true, filter_records, NULL);
+    g_filter.consume = true;
+
+    feed("help\n");
+    CHECK_EQ_INT(g_filter.calls, 1);
+    CHECK(!output_contains("answer with pong"));
+}
+
+TEST(a_hex_transfer_and_commands_share_the_line)
+{
+    /* The whole point: records and commands interleaved on one console. */
+    setup_with_filter(false, false, filter_hex_records, NULL);
+
+    feed(":020000041000EA\n");
+    feed("ping\n");
+    feed(":10000000000102030405060708090A0B0C0D0E0F78\n");
+    feed("noop\n");
+
+    CHECK_EQ_INT(g_filter.calls, 2);
+    CHECK_EQ_INT(g_seen.calls, 2);
+    CHECK(output_contains("pong"));
+    CHECK(!output_contains("unknown command"));
+}
+
+TEST(a_filter_can_write_through_the_stream)
+{
+    setup_with_filter(false, false, filter_hex_records, NULL);
+    feed(":00000001FF\n");
+
+    /* It got the record rather than the dispatcher reporting it. */
+    CHECK_EQ_STR(g_filter.last_line, ":00000001FF");
+}
+
 TEST_MAIN(
     RUN(a_command_runs_when_the_line_ends);
     RUN(command_names_are_case_insensitive);
@@ -649,6 +832,17 @@ TEST_MAIN(
     RUN(poll_drains_the_stream_and_runs_commands);
     RUN(poll_on_an_empty_stream_does_nothing);
     RUN(poll_stops_at_its_budget_rather_than_spinning);
+
+    RUN(without_a_filter_a_hex_record_is_an_unknown_command);
+    RUN(a_filter_that_consumes_a_line_prevents_dispatch);
+    RUN(a_filter_that_declines_leaves_the_line_to_be_dispatched);
+    RUN(the_filter_sees_every_line_when_it_declines_them);
+    RUN(the_filter_sees_the_line_before_it_is_tokenised);
+    RUN(the_filter_receives_its_user_data);
+    RUN(the_filter_is_not_called_for_blank_lines);
+    RUN(the_filter_runs_ahead_of_the_built_in_help);
+    RUN(a_hex_transfer_and_commands_share_the_line);
+    RUN(a_filter_can_write_through_the_stream);
 
     RUN(init_rejects_a_missing_line_buffer);
     RUN(init_rejects_a_command_without_a_name);

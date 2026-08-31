@@ -339,9 +339,33 @@ static void execute_line(cli_t *cli)
     cli->line[cli->line_len] = '\0';
     cli->parse_pos = 0;
 
+    /*
+     * A line holding nothing but separators is blank as far as anyone is
+     * concerned, so it is discarded before the filter rather than after. That
+     * keeps one meaning of "blank" throughout: a filter counting records is
+     * never handed whitespace noise off a serial link, just as the dispatcher
+     * never reports it as an unknown command.
+     */
+    if (cli_args_exhausted(cli)) {
+        return;
+    }
+    cli->parse_pos = 0;
+
+    /*
+     * The filter is offered the whole line next, before tokenising cuts
+     * terminators into the buffer. A filter that claims the line has dealt
+     * with it, so nothing further happens — in particular no "unknown
+     * command", which is what a stream of Intel HEX records would otherwise
+     * produce line after line.
+     */
+    if (cli->line_filter != NULL &&
+        cli->line_filter(cli, cli->line, cli->line_filter_user_data)) {
+        return;
+    }
+
     const char *name = cli_next_token(cli);
     if (name == NULL) {
-        return; /* blank line */
+        return; /* unreachable: the blank case is handled above */
     }
 
     if (cli->enable_help && (equals_ignore_case(name, "help") ||
@@ -495,6 +519,8 @@ cli_init_result_t cli_init(cli_t *cli, const cli_config_t *config)
         .prompt       = config->prompt,
         .echo         = config->echo,
         .enable_help  = config->enable_help,
+        .line_filter  = config->line_filter,
+        .line_filter_user_data = config->line_filter_user_data,
         .initialised  = true,
     };
 
