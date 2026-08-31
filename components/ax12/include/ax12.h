@@ -105,6 +105,15 @@ servo_bus_result_t ax12_set_torque_limit(servo_bus_t *bus, uint8_t id, uint16_t 
 
 servo_bus_result_t ax12_is_moving(servo_bus_t *bus, uint8_t id, bool *moving);
 
+/*
+ * Send every servo to its own position in one packet, so they all start
+ * together. See servo_bus_sync_write() for what that buys and what it costs.
+ * Positions above AX12_POSITION_MAX are rejected before anything is sent.
+ */
+servo_bus_result_t ax12_sync_set_goal_positions(servo_bus_t *bus,
+                                               const servo_sync_target_t *targets,
+                                               uint8_t count);
+
 /* Signed: negative is clockwise. See ax12_decode_signed_magnitude(). */
 servo_bus_result_t ax12_get_present_speed(servo_bus_t *bus, uint8_t id, int16_t *speed);
 servo_bus_result_t ax12_get_present_load(servo_bus_t *bus, uint8_t id, int16_t *load);

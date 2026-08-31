@@ -104,6 +104,12 @@ servo_bus_result_t feetech_set_acceleration(servo_bus_t *bus, uint8_t id,
 
 servo_bus_result_t feetech_is_moving(servo_bus_t *bus, uint8_t id, bool *moving);
 
+/* Send every servo to its own position in one packet; see
+   servo_bus_sync_write(). */
+servo_bus_result_t feetech_sync_set_goal_positions(servo_bus_t *bus,
+                                                  const servo_sync_target_t *targets,
+                                                  uint8_t count);
+
 servo_bus_result_t feetech_get_present_speed(servo_bus_t *bus, uint8_t id,
                                              int16_t *speed);
 servo_bus_result_t feetech_get_present_load(servo_bus_t *bus, uint8_t id,

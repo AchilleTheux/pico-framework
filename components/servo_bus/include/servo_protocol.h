@@ -36,10 +36,16 @@ extern "C" {
 /* Every servo acts on a packet sent to this ID, and none of them answers it. */
 #define SERVO_PROTOCOL_BROADCAST_ID 0xFEu
 
-/* Largest parameter count this implementation encodes or decodes. Generous for
-   single-register access; a sync-write to many servos would need more. */
+/*
+ * Largest parameter count this implementation encodes or decodes.
+ *
+ * Single-register access needs a handful. A sync-write is what sets this: it
+ * carries a register, a width, and then an id plus its value for every servo,
+ * so 128 parameters reaches about 42 servos at two bytes each. The format's own
+ * ceiling is 251, since the length field is one byte and counts two more.
+ */
 #ifndef SERVO_PROTOCOL_MAX_PARAMS
-#define SERVO_PROTOCOL_MAX_PARAMS 32u
+#define SERVO_PROTOCOL_MAX_PARAMS 128u
 #endif
 
 /* 0xFF 0xFF ID LENGTH + instruction/error + params + checksum */
@@ -167,6 +173,44 @@ servo_protocol_result_t servo_protocol_build_write_value(uint8_t *out, size_t ca
                                                          uint8_t id, uint8_t reg,
                                                          uint32_t value, uint8_t width,
                                                          servo_endianness_t endianness);
+
+/*
+ * One servo's share of a sync-write.
+ *
+ * `value` is encoded to the width the call specifies, in the bus's byte order.
+ */
+typedef struct {
+    uint8_t id;
+    uint32_t value;
+} servo_sync_target_t;
+
+/*
+ * Build a SYNC_WRITE: one packet that writes a different value to the same
+ * register on many servos.
+ *
+ * The point of it is timing. Writing to each servo in turn takes a transaction
+ * each, so the first has begun moving before the last has been told anything —
+ * on a 1 Mbaud bus with ten servos that is several milliseconds of skew, and it
+ * shows as a limb that does not move as one. A sync-write is a single broadcast
+ * packet, so every servo starts on the same byte.
+ *
+ * Addressed to the broadcast id, so no servo replies and nothing is
+ * acknowledged: a sync-write that is corrupted in transit is simply not acted
+ * on, and the caller finds out by reading positions back.
+ */
+servo_protocol_result_t servo_protocol_build_sync_write(uint8_t *out, size_t capacity,
+                                                       size_t *written,
+                                                       uint8_t reg, uint8_t width,
+                                                       const servo_sync_target_t *targets,
+                                                       uint8_t count,
+                                                       servo_endianness_t endianness);
+
+/* Parameters a sync-write of `count` servos at `width` bytes each will need,
+   for checking against SERVO_PROTOCOL_MAX_PARAMS before building one. */
+static inline size_t servo_protocol_sync_write_params(uint8_t width, uint8_t count)
+{
+    return 2u + ((size_t)width + 1u) * count;
+}
 
 /* ---------------------------------------------------------------------------
  * Parsing status packets

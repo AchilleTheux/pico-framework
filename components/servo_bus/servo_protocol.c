@@ -135,6 +135,48 @@ servo_protocol_result_t servo_protocol_build_write_value(uint8_t *out, size_t ca
     return servo_protocol_build_write(out, capacity, written, id, reg, encoded, width);
 }
 
+servo_protocol_result_t servo_protocol_build_sync_write(uint8_t *out, size_t capacity,
+                                                       size_t *written,
+                                                       uint8_t reg, uint8_t width,
+                                                       const servo_sync_target_t *targets,
+                                                       uint8_t count,
+                                                       servo_endianness_t endianness)
+{
+    if (written != NULL) {
+        *written = 0;
+    }
+    if (out == NULL || targets == NULL || count == 0) {
+        return SERVO_PROTOCOL_ERR_INVALID_ARG;
+    }
+    if (width != 1 && width != 2 && width != 4) {
+        return SERVO_PROTOCOL_ERR_INVALID_ARG;
+    }
+
+    const size_t param_count = servo_protocol_sync_write_params(width, count);
+    if (param_count > SERVO_PROTOCOL_MAX_PARAMS) {
+        return SERVO_PROTOCOL_ERR_TOO_MANY_PARAMS;
+    }
+
+    /*
+     * Parameters are the register, the width, and then each servo's id
+     * followed by its value. The receiving servos use the width to know how to
+     * split what follows, which is why it is on the wire rather than implied.
+     */
+    uint8_t params[SERVO_PROTOCOL_MAX_PARAMS];
+    size_t at = 0;
+    params[at++] = reg;
+    params[at++] = width;
+
+    for (uint8_t i = 0; i < count; i++) {
+        params[at++] = targets[i].id;
+        servo_protocol_encode_value(&params[at], targets[i].value, width, endianness);
+        at += width;
+    }
+
+    return servo_protocol_build(out, capacity, written, SERVO_PROTOCOL_BROADCAST_ID,
+                               SERVO_INST_SYNC_WRITE, params, (uint8_t)at);
+}
+
 servo_protocol_result_t servo_protocol_parse_status(const uint8_t *data, size_t len,
                                                     servo_status_packet_t *out)
 {

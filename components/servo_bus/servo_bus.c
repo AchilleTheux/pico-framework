@@ -253,6 +253,35 @@ servo_bus_result_t servo_bus_write_value(servo_bus_t *bus, uint8_t id, uint8_t r
     return servo_bus_write(bus, id, reg, encoded, width, error_out);
 }
 
+servo_bus_result_t servo_bus_sync_write(servo_bus_t *bus, uint8_t reg, uint8_t width,
+                                        const servo_sync_target_t *targets,
+                                        uint8_t count)
+{
+    if (bus == NULL || !bus->initialised || targets == NULL || count == 0) {
+        return SERVO_BUS_ERR_INVALID_ARG;
+    }
+
+    uint8_t request[SERVO_PROTOCOL_MAX_PACKET_SIZE];
+    size_t request_len = 0;
+
+    const servo_protocol_result_t built =
+        servo_protocol_build_sync_write(request, sizeof(request), &request_len,
+                                        reg, width, targets, count, bus->endianness);
+    if (built != SERVO_PROTOCOL_OK) {
+        /* Too many servos for one packet, or a bad width: either way the
+           caller asked for something that cannot be encoded. */
+        return SERVO_BUS_ERR_INVALID_ARG;
+    }
+
+    /*
+     * Sent through transact() with the broadcast id, which skips the reply and
+     * therefore the retry as well. Counting it keeps the statistics honest
+     * about how much traffic the bus is carrying.
+     */
+    return transact(bus, request, request_len, SERVO_PROTOCOL_BROADCAST_ID,
+                    NULL, 0, NULL);
+}
+
 /* ---------------------------------------------------------------------------
  * Diagnostics
  * -------------------------------------------------------------------------*/

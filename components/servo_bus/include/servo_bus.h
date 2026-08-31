@@ -132,6 +132,23 @@ servo_bus_result_t servo_bus_write_value(servo_bus_t *bus, uint8_t id, uint8_t r
                                          uint32_t value, uint8_t width,
                                          uint8_t *error_out);
 
+/*
+ * Write a different value to the same register on many servos, in one packet.
+ *
+ * Use this rather than a write per servo whenever they should move together.
+ * Separate writes take a transaction each, so the first servo has begun moving
+ * before the last has been told anything — several milliseconds of skew across
+ * ten servos, which reads as a limb that does not move as one.
+ *
+ * Sent to the broadcast id, so nothing replies and nothing is acknowledged.
+ * There is no retry either: a corrupted sync-write is simply not acted on, and
+ * the way to find out is to read the positions back. That is the trade the
+ * format makes for the timing.
+ */
+servo_bus_result_t servo_bus_sync_write(servo_bus_t *bus, uint8_t reg, uint8_t width,
+                                        const servo_sync_target_t *targets,
+                                        uint8_t count);
+
 /* ---------------------------------------------------------------------------
  * Diagnostics
  * -------------------------------------------------------------------------*/

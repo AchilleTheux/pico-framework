@@ -547,12 +547,61 @@ static int cmd_soak(cli_t *c, void *user_data)
 
 static cli_command_t commands[CLI_BUILTIN_COMMAND_COUNT + 16u];
 
+/* Move several servos at once, so the timing difference is visible: separate
+   writes stagger the starts, one sync-write does not. */
+static int cmd_sync(cli_t *c, void *user_data)
+{
+    (void)user_data;
+
+    servo_sync_target_t targets[16];
+    uint8_t count = 0;
+
+    while (count < count_of(targets) && !cli_args_exhausted(c)) {
+        uint32_t id, position;
+        if (!cli_next_u32(c, &id) || !cli_next_u32(c, &position)) {
+            cli_write(c, "usage: sync <id> <pos> [<id> <pos> ...]\r\n");
+            return CLI_ERR_ARG;
+        }
+        if (id > SERVO_ID_MAX || position > SERVO_POSITION_MAX) {
+            cli_printf(c, "id must be 0..%u and position 0..%u\r\n",
+                       (unsigned)SERVO_ID_MAX, (unsigned)SERVO_POSITION_MAX);
+            return CLI_ERR_RANGE;
+        }
+        targets[count].id = (uint8_t)id;
+        targets[count].value = position;
+        count++;
+    }
+
+    if (count == 0) {
+        cli_write(c, "usage: sync <id> <pos> [<id> <pos> ...]\r\n");
+        return CLI_ERR_ARG;
+    }
+
+#if SERVO_TEST_FAMILY_FEETECH
+    const servo_bus_result_t result =
+        feetech_sync_set_goal_positions(&bus, targets, count);
+#else
+    const servo_bus_result_t result = ax12_sync_set_goal_positions(&bus, targets, count);
+#endif
+
+    if (result != SERVO_BUS_OK) {
+        return fail(c, result);
+    }
+
+    /* Nothing acknowledges a sync-write, so this only means it went out. */
+    cli_printf(c, "sent to %u servos (not acknowledged; read positions to check)\r\n",
+               count);
+    show_outcome(true);
+    return CLI_OK;
+}
+
 static const cli_command_t own_commands[] = {
     { "scan",   "find every servo on the bus",        cmd_scan,        NULL },
     { "ping",   "ping <id>",                          cmd_ping,        NULL },
     { "read",   "read <id> <register>",               cmd_read,        NULL },
     { "write",  "write <id> <register> <value>",      cmd_write,       NULL },
     { "pos",    "pos <id> [position] - get or set",   cmd_pos,         NULL },
+    { "sync",   "sync <id> <pos> ... - all at once",  cmd_sync,        NULL },
     { "torque", "torque <id> <0|1>",                  cmd_torque,      NULL },
     { "status", "status <id> - everything at once",   cmd_status,      NULL },
     { "regs",   "list the control table",             cmd_regs,        NULL },

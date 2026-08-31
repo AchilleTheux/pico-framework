@@ -162,6 +162,23 @@ servo_bus_result_t feetech_is_moving(servo_bus_t *bus, uint8_t id, bool *moving)
     return result;
 }
 
+servo_bus_result_t feetech_sync_set_goal_positions(servo_bus_t *bus,
+                                                  const servo_sync_target_t *targets,
+                                                  uint8_t count)
+{
+    if (targets == NULL || count == 0) {
+        return SERVO_BUS_ERR_INVALID_ARG;
+    }
+
+    for (uint8_t i = 0; i < count; i++) {
+        if (targets[i].value > FEETECH_POSITION_MAX || targets[i].id > FEETECH_ID_MAX) {
+            return SERVO_BUS_ERR_INVALID_ARG;
+        }
+    }
+
+    return servo_bus_sync_write(bus, FEETECH_REG_GOAL_POSITION, 2, targets, count);
+}
+
 static servo_bus_result_t read_signed_magnitude(servo_bus_t *bus, uint8_t id,
                                                 uint8_t reg, int16_t *out)
 {

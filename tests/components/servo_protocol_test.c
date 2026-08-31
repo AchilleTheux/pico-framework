@@ -499,6 +499,201 @@ TEST(a_one_byte_description_buffer_is_survivable)
     CHECK_EQ_INT(buffer[0], '\0');
 }
 
+/* ---------------------------------------------------------------------------
+ * Sync write
+ *
+ * One packet that writes a different value to the same register on many
+ * servos, so they all start on the same byte rather than several milliseconds
+ * apart. The expected bytes below were derived from the format, not captured
+ * from this code.
+ * -------------------------------------------------------------------------*/
+
+TEST(a_sync_write_matches_the_format)
+{
+    /* Goal position on servos 1 and 2, two bytes each, little-endian:
+       FF FF FE 0A 83 1E 02 01 00 01 02 00 02 4E */
+    static const uint8_t expected[] = {
+        0xFF, 0xFF, 0xFE, 0x0A, 0x83, 0x1E, 0x02,
+        0x01, 0x00, 0x01,
+        0x02, 0x00, 0x02,
+        0x4E,
+    };
+    static const servo_sync_target_t targets[] = {
+        { .id = 1, .value = 0x0100 },
+        { .id = 2, .value = 0x0200 },
+    };
+
+    uint8_t packet[SERVO_PROTOCOL_MAX_PACKET_SIZE];
+    size_t written = 0;
+
+    CHECK_EQ_INT(servo_protocol_build_sync_write(packet, sizeof(packet), &written,
+                                                 0x1E, 2, targets, 2,
+                                                 SERVO_ENDIAN_LITTLE),
+                 SERVO_PROTOCOL_OK);
+    check_bytes("sync write", packet, written, expected, sizeof(expected));
+}
+
+TEST(a_sync_write_goes_to_the_broadcast_id)
+{
+    /* It must, or only one servo would act on it. */
+    static const servo_sync_target_t targets[] = { { .id = 3, .value = 1 } };
+
+    uint8_t packet[SERVO_PROTOCOL_MAX_PACKET_SIZE];
+    size_t written = 0;
+    servo_protocol_build_sync_write(packet, sizeof(packet), &written, 0x1E, 2,
+                                    targets, 1, SERVO_ENDIAN_LITTLE);
+
+    CHECK_EQ_INT(packet[2], SERVO_PROTOCOL_BROADCAST_ID);
+    CHECK_EQ_INT(packet[4], SERVO_INST_SYNC_WRITE);
+}
+
+TEST(a_sync_write_carries_a_valid_checksum_at_every_size)
+{
+    /* Its length field and checksum both depend on the servo count, so both
+       are checked across the range rather than at one size. */
+    servo_sync_target_t targets[42];
+    for (unsigned i = 0; i < count_of_(targets); i++) {
+        targets[i].id = (uint8_t)(i + 1u);
+        targets[i].value = (uint16_t)(i * 97u);
+    }
+
+    for (uint8_t count = 1; count <= count_of_(targets); count++) {
+        if (servo_protocol_sync_write_params(2, count) > SERVO_PROTOCOL_MAX_PARAMS) {
+            break;
+        }
+
+        uint8_t packet[SERVO_PROTOCOL_MAX_PACKET_SIZE];
+        size_t written = 0;
+        if (servo_protocol_build_sync_write(packet, sizeof(packet), &written, 0x1E, 2,
+                                            targets, count, SERVO_ENDIAN_LITTLE)
+                != SERVO_PROTOCOL_OK) {
+            printf("    %u servos would not build\n", count);
+            CHECK(false);
+            return;
+        }
+
+        /* Parses back, so the length and checksum agree with the payload. */
+        servo_status_packet_t parsed;
+        if (servo_protocol_parse_status(packet, written, &parsed) != SERVO_PROTOCOL_OK) {
+            printf("    %u servos did not round-trip\n", count);
+            CHECK(false);
+            return;
+        }
+        if (parsed.packet_size != written) {
+            CHECK_EQ_INT(parsed.packet_size, written);
+            return;
+        }
+    }
+}
+
+TEST(a_sync_write_encodes_each_value_in_the_bus_byte_order)
+{
+    static const servo_sync_target_t targets[] = { { .id = 1, .value = 0x1234 } };
+
+    uint8_t little[SERVO_PROTOCOL_MAX_PACKET_SIZE];
+    uint8_t big[SERVO_PROTOCOL_MAX_PACKET_SIZE];
+    size_t written = 0;
+
+    servo_protocol_build_sync_write(little, sizeof(little), &written, 0x1E, 2,
+                                    targets, 1, SERVO_ENDIAN_LITTLE);
+    servo_protocol_build_sync_write(big, sizeof(big), &written, 0x1E, 2,
+                                    targets, 1, SERVO_ENDIAN_BIG);
+
+    /* Parameters start at index 5: reg, width, id, then the value. */
+    CHECK_EQ_INT(little[8], 0x34);
+    CHECK_EQ_INT(little[9], 0x12);
+    CHECK_EQ_INT(big[8], 0x12);
+    CHECK_EQ_INT(big[9], 0x34);
+}
+
+TEST(a_sync_write_of_one_byte_values_is_compact)
+{
+    /* Torque enable across several servos: one byte each. */
+    static const servo_sync_target_t targets[] = {
+        { .id = 1, .value = 1 }, { .id = 2, .value = 1 }, { .id = 3, .value = 0 },
+    };
+
+    uint8_t packet[SERVO_PROTOCOL_MAX_PACKET_SIZE];
+    size_t written = 0;
+    CHECK_EQ_INT(servo_protocol_build_sync_write(packet, sizeof(packet), &written,
+                                                 0x18, 1, targets, 3,
+                                                 SERVO_ENDIAN_LITTLE),
+                 SERVO_PROTOCOL_OK);
+
+    /* 2 + 2*3 = 8 parameters, so 14 bytes on the wire. */
+    CHECK_EQ_INT(written, servo_protocol_packet_size(8));
+    CHECK_EQ_INT(packet[6], 1); /* the width the servos will split by */
+}
+
+TEST(too_many_servos_for_one_packet_is_rejected)
+{
+    servo_sync_target_t targets[128];
+    for (unsigned i = 0; i < count_of_(targets); i++) {
+        targets[i].id = (uint8_t)i;
+        targets[i].value = 0;
+    }
+
+    uint8_t packet[SERVO_PROTOCOL_MAX_PACKET_SIZE];
+    size_t written = 123;
+
+    CHECK_EQ_INT(servo_protocol_build_sync_write(packet, sizeof(packet), &written,
+                                                 0x1E, 2, targets, 100,
+                                                 SERVO_ENDIAN_LITTLE),
+                 SERVO_PROTOCOL_ERR_TOO_MANY_PARAMS);
+    CHECK_EQ_INT(written, 0);
+}
+
+TEST(a_degenerate_sync_write_is_rejected)
+{
+    static const servo_sync_target_t targets[] = { { .id = 1, .value = 0 } };
+    uint8_t packet[SERVO_PROTOCOL_MAX_PACKET_SIZE];
+    size_t written = 0;
+
+    CHECK_EQ_INT(servo_protocol_build_sync_write(packet, sizeof(packet), &written,
+                                                 0x1E, 2, targets, 0,
+                                                 SERVO_ENDIAN_LITTLE),
+                 SERVO_PROTOCOL_ERR_INVALID_ARG);
+    CHECK_EQ_INT(servo_protocol_build_sync_write(packet, sizeof(packet), &written,
+                                                 0x1E, 3, targets, 1,
+                                                 SERVO_ENDIAN_LITTLE),
+                 SERVO_PROTOCOL_ERR_INVALID_ARG);
+    CHECK_EQ_INT(servo_protocol_build_sync_write(packet, sizeof(packet), &written,
+                                                 0x1E, 2, NULL, 1,
+                                                 SERVO_ENDIAN_LITTLE),
+                 SERVO_PROTOCOL_ERR_INVALID_ARG);
+}
+
+TEST(the_predicted_parameter_count_matches_what_is_built)
+{
+    /* Callers use this to check a batch will fit before trying. */
+    servo_sync_target_t targets[8];
+    for (unsigned i = 0; i < count_of_(targets); i++) {
+        targets[i].id = (uint8_t)(i + 1u);
+        targets[i].value = i;
+    }
+
+    static const uint8_t widths[] = { 1, 2, 4 };
+    for (unsigned w = 0; w < count_of_(widths); w++) {
+        for (uint8_t count = 1; count <= count_of_(targets); count++) {
+            uint8_t packet[SERVO_PROTOCOL_MAX_PACKET_SIZE];
+            size_t written = 0;
+            if (servo_protocol_build_sync_write(packet, sizeof(packet), &written,
+                                                0x1E, widths[w], targets, count,
+                                                SERVO_ENDIAN_LITTLE) != SERVO_PROTOCOL_OK) {
+                continue;
+            }
+            const size_t predicted =
+                servo_protocol_sync_write_params(widths[w], count);
+            if (written != servo_protocol_packet_size((uint8_t)predicted)) {
+                printf("    width %u count %u: predicted %u params, packet %u bytes\n",
+                       widths[w], count, (unsigned)predicted, (unsigned)written);
+                CHECK(false);
+                return;
+            }
+        }
+    }
+}
+
 TEST_MAIN(
     RUN(checksum_matches_the_datasheet_example);
     RUN(checksum_is_the_complement_of_the_sum);
@@ -517,6 +712,15 @@ TEST_MAIN(
     RUN(an_odd_value_width_is_rejected);
 
     RUN(an_unsuppressed_echo_parses_as_a_plausible_reply);
+    RUN(a_sync_write_matches_the_format);
+    RUN(a_sync_write_goes_to_the_broadcast_id);
+    RUN(a_sync_write_carries_a_valid_checksum_at_every_size);
+    RUN(a_sync_write_encodes_each_value_in_the_bus_byte_order);
+    RUN(a_sync_write_of_one_byte_values_is_compact);
+    RUN(too_many_servos_for_one_packet_is_rejected);
+    RUN(a_degenerate_sync_write_is_rejected);
+    RUN(the_predicted_parameter_count_matches_what_is_built);
+
     RUN(a_status_packet_from_the_datasheet_parses);
     RUN(a_ping_reply_carries_no_parameters);
     RUN(the_error_byte_is_reported);

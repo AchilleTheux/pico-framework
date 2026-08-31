@@ -97,13 +97,41 @@ if (servo_bus_read_value(&bus, 1, 0x24, 2, &position, &servo_error) == SERVO_BUS
 }
 ```
 
+## Moving several servos together
+
+```c
+const servo_sync_target_t targets[] = {
+    { .id = 1, .value = 512 },
+    { .id = 2, .value = 300 },
+    { .id = 3, .value = 700 },
+};
+ax12_sync_set_goal_positions(&bus, targets, count_of(targets));
+```
+
+One broadcast packet rather than a transaction each. The difference is timing:
+separate writes mean the first servo has begun moving before the last has been
+told anything — several milliseconds of skew across ten servos on a 1 Mbaud
+bus, which reads as a limb that does not move as one.
+
+What it costs is acknowledgement. A sync-write goes to the broadcast id, so
+nothing replies, there is no retry, and a packet corrupted in transit is simply
+not acted on. The way to find out is to read the positions back. Because of
+that, the range checks happen before anything is sent: a servo told to go
+somewhere impossible would otherwise fail silently.
+
+About 42 servos fit in one packet at two bytes each;
+`servo_protocol_sync_write_params()` says whether a batch will fit before you
+try to build it.
+
 ## Caveats
 
 * **Untested on hardware.** The packet format is checked against the datasheet
   by the host tests, but no servo has answered this code yet.
-* **Not implemented:** `SYNC_WRITE`, `REG_WRITE`/`ACTION`, and `RESET`. The
-  instruction codes are defined; the operations are not. Sync-write is the one
-  worth adding first, for moving several servos in the same instant.
+* **Not implemented:** `REG_WRITE`/`ACTION` and `RESET`. The instruction codes
+  are defined; the operations are not. `REG_WRITE`/`ACTION` is the other way to
+  make servos act together — it queues a write on each and then triggers them
+  all — and is worth adding if per-servo acknowledgement of the queued write
+  turns out to matter more than sync-write's single packet.
 * **Protocol 2.0** (XL-320, X series) is a different format entirely and is not
   supported.
 
