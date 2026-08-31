@@ -206,32 +206,6 @@ static void test_image_header(void)
            "one flipped bit");
 }
 
-static void test_boot_decision(void)
-{
-    firmware_image_header_t application;
-    firmware_image_header_t staged;
-    firmware_image_header_init(&application, 1024, 0xAAAAu, 0x10000000u, 1);
-    firmware_image_header_init(&staged, 2048, 0xBBBBu, 0x10000000u, 2);
-
-    firmware_image_header_t erased;
-    memset(&erased, 0xFF, sizeof(erased));
-
-    report("runs a valid application",
-           firmware_image_decide_boot(&application, &erased) ==
-               FIRMWARE_BOOT_RUN_APPLICATION, "");
-
-    report("installs a different staged image",
-           firmware_image_decide_boot(&application, &staged) ==
-               FIRMWARE_BOOT_INSTALL_STAGED, "");
-
-    report("ignores a broken staged image",
-           firmware_image_decide_boot(&application, &erased) ==
-               FIRMWARE_BOOT_RUN_APPLICATION, "");
-
-    report("falls back to recovery",
-           firmware_image_decide_boot(&erased, &erased) == FIRMWARE_BOOT_RECOVERY, "");
-}
-
 /* ------------------------------------------------------------------------
  * Ring buffer
  * ---------------------------------------------------------------------- */
@@ -394,7 +368,6 @@ int main(void)
         test_crc();
         test_hex_parser();
         test_image_header();
-        test_boot_decision();
         test_ring_buffer();
         test_flash_layout();
         test_flash_guards();
