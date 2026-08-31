@@ -19,6 +19,7 @@ set(PICO_FRAMEWORK_COMPONENTS
     ring_buffer
     hex_parser
     i2c_device
+    persistent_config
     flash_storage
     firmware_update
     ws2812

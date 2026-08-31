@@ -47,6 +47,8 @@ MATRIX=(
     "bras_attrape_caisse:minimal:default"
     "bras_attrape_caisse:tests/firmware_update_test:default"
     "pico2:tests/firmware_update_test:write_flash"
+    "pico:tests/config_test:default"
+    "pico2:tests/config_test:default"
     "pico:tests/i2c_test:default"
     "pico2:tests/i2c_test:default"
     "bras_attrape_caisse:tests/i2c_test:bras_left"

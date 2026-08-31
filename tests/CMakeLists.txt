@@ -190,3 +190,12 @@ host_test(i2c_bytes_test
 target_include_directories(i2c_bytes_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/i2c_device/include"
 )
+
+host_test(config_store_test
+    SOURCES
+        tests/components/config_store_test.c
+        components/persistent_config/config_store.c
+)
+target_include_directories(config_store_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/persistent_config/include"
+)
