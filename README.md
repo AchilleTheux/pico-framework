@@ -9,11 +9,11 @@ of reusable components. See [DESIGN_DOC.md](DESIGN_DOC.md) for the full design.
 
 ## Status
 
-Implementation steps 1-12 of DESIGN_DOC.md section 24 are complete: repository
-structure, pinned SDK submodule, the `BOARD` / `APP` / `PROFILE` CMake model,
-the `minimal` application building for RP2040 and RP2350, the Makefile
-frontend, the component target convention, the host-test harness, and the
-first two components.
+All 15 initial implementation priorities in DESIGN_DOC.md section 24 are
+complete: the repository and build model, reusable components, host and target
+tests, real application profiles, WiFi support, and the extension guide. The
+framework now has 18 registered components; their individual READMEs distinguish
+host coverage, build coverage, and physical hardware validation.
 
 | Component | What it provides |
 |-----------|------------------|
@@ -26,7 +26,7 @@ first two components.
 | [`crc`](components/crc/) | CRC-32 and CRC-16, standard parameterisations |
 | [`ring_buffer`](components/ring_buffer/) | byte FIFO over caller-owned storage |
 | [`hex_parser`](components/hex_parser/) | Intel HEX record decoding |
-| [`firmware_update`](components/firmware_update/) | image header and the boot decision (pure half) |
+| [`firmware_update`](components/firmware_update/) | staged serial image reception, verification, and opt-in in-place install |
 | [`flash_storage`](components/flash_storage/) | bounded erase/program/read, and the flash layout |
 | [`i2c_device`](components/i2c_device/) | register access over I2C, with explicit byte order |
 | [`vl53l0x`](components/vl53l0x/) | ST VL53L0X time-of-flight distance sensor |
@@ -42,17 +42,21 @@ Updating a board over a serial link, with no USB involved, is built from these:
 on one console. [`serial_update_test`](apps/tests/serial_update_test/) is the
 worked example.
 
-Each has host tests and a hardware test application. `ws2812` and `cli` are
-ported from working firmware and exercise their hardware paths; the four servo
-components build clean for both architectures and their protocol handling is
-checked against the AX-12 datasheet by the host tests, but **none of them has
-yet been run against a real servo bus**.
+Pure logic is covered by 18 sanitizer-enabled host executables. Hardware-facing
+groups have manual applications under `apps/tests/`; a successful cross-build
+is recorded separately from a physical result. The RP2040-Zero has validated
+USB stdio and CLI, its onboard WS2812, bare-pin PIO UART loopback, persistent
+configuration on flash, and an empty I2C bus. CAN, real I2C devices, smart
+servos, radio operation, and the firmware installer still await the hardware
+listed by their test applications.
 
-The last four are the foundations of updating firmware over a serial link,
-without needing the BOOTSEL button. Their pure logic is complete and tested;
-the flash-backed half and the bootloader itself are not written yet.
+The serial updater is implemented as an application service: it stages and
+verifies an image, then an opt-in RAM-resident routine installs it in place.
+There is no separate resident bootloader. Its host logic and linked layout are
+tested, but the end-to-end flash install has not yet run on hardware.
 
-Still to come: TCP and UDP over the WiFi link, and PWM.
+Still to come as components: TCP and UDP over the WiFi link, PWM, and a
+flash-backed logging sink.
 
 ## Getting started
 
@@ -173,19 +177,9 @@ cmake/
   components.cmake      explicit registration list for reusable components
 lib/pico-sdk/           Pico SDK, pinned submodule
 lib/can2040/            PIO CAN controller, pinned submodule
-components/ws2812/      addressable LED strips
-components/cli/         command interpreter
-components/half_duplex_uart/  single-wire UART for servo buses
-components/servo_bus/   Protocol 1.0 packets and transactions
-components/ax12/        Dynamixel AX-12 servos
-components/feetech/     Feetech STS/SMS/SCS servos
-components/crc/         CRC-32 and CRC-16
-components/ring_buffer/ byte FIFO
-components/hex_parser/  Intel HEX decoding
-components/firmware_update/  firmware image format and boot decision
-components/flash_storage/    bounded flash access and the chip layout
+components/             reusable libraries listed in the status table above
 apps/minimal/           the smallest complete application
-apps/tests/             one hardware test application per component
+apps/tests/             hardware benches, often exercising several components
 boards/                 custom Pico SDK board headers
 profiles/<app>/         initial-cache profiles per application
 config/                 non-secret application defaults that vary by deployment
@@ -239,35 +233,23 @@ format cannot pass.
 vendor USB interface, which is what `picotool load -f` uses to reset a running
 board, and a 1200-baud touch on the CDC port.
 
-`make flash-serial` addresses the case `picotool` alone handles badly — several
-boards plugged in at once:
+`make flash-serial` is a different path: it sends Intel HEX records through a
+running firmware's CLI, with no USB or BOOTSEL dependency. The resident image
+must include the firmware update service; `serial_update_test` is the reference
+application.
 
 ```bash
-make flash-serial /dev/ttyACM0
-make BOARD=pico2 APP=tests/servo_test PROFILE=ax12 flash-serial PORT=/dev/ttyACM1
+make BOARD=pico2 APP=tests/serial_update_test PROFILE=rebuilt \
+    flash-serial PORT=/dev/ttyACM0
 ```
 
-Both spellings work. With no port given it picks the only one present, and
-lists them when there is a choice.
-
-It asks the firmware on that port to reboot, two ways, since which one applies
-depends on how the board is attached:
-
-| Mechanism | Works with |
-|---|---|
-| the CLI command `bootsel` | firmware with the `cli` component and a command calling `reset_usb_boot()` — including over a real UART |
-| a 1200-baud touch | any firmware built with `pico_enable_stdio_usb`; USB CDC only |
-
-Then it waits for the board in BOOTSEL and loads with `picotool`.
-
-**The upload is still over USB.** What naming a port buys is knowing *which*
-board gets flashed: rebooting through one specific port puts exactly one board
-into BOOTSEL, where `picotool load -f` on a busy bench picks one for you. A
-genuine serial-only upload needs the resident bootloader that is not built yet;
-when it exists it belongs in the same script, tried before the USB path.
-
-Overridable through the environment: `SERIAL_RESET_COMMAND`, `SERIAL_RESET_BAUD`,
-`SERIAL_RESET_TIMEOUT`.
+The port may also be a bare make goal (`make ... flash-serial /dev/ttyACM0`).
+With no port given, the script selects the only serial port or lists the choices.
+It stages and verifies by default; add `APPLY=1` to invoke the deliberately
+opt-in installer. `SERIAL_UPDATE_BAUD` selects the line rate for a real UART
+(USB CDC ignores it). See
+[`serial_update_test`](apps/tests/serial_update_test/README.md) for the safe
+recovery assumptions and complete procedure.
 
 ### CI
 
@@ -339,9 +321,14 @@ Every application builds warning-free with `-Werror` for:
 
 ## Next steps
 
-Implementation continues with DESIGN_DOC.md section 24: profiles justified by
-real configurations, then WiFi, then the documentation on creating a component,
-application, profile and custom board.
+The initial roadmap in DESIGN_DOC.md section 24 is complete. Further work is
+driven by actual project needs rather than another architecture phase:
+
+- validate CAN, smart servos, VL53L0X, WiFi, Bluetooth, and firmware install on
+  the required hardware;
+- add TCP/UDP, PWM, and persistent flash logging when an application needs them;
+- exercise the framework in a complete robot application rather than only the
+  minimal image and component benches.
 
 The components ported so far come from the `Carte_actionneurs` Eurobot
 firmware, rewritten to the framework's conventions: configuration structures

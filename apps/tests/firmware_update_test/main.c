@@ -4,9 +4,9 @@
  * Everything here is also covered by the host tests, and far more thoroughly.
  * The reason to run it on hardware anyway is that the host and the target are
  * not the same machine: the image header is written to flash byte for byte, so
- * its size and packing have to agree between whatever builds an image and the
- * bootloader that reads one, and the crc and ring buffer code has to behave
- * identically on a 32-bit target with a different compiler.
+ * its size and packing have to agree between the session that verifies an
+ * image and the later session that recovers it, and the crc and ring buffer
+ * code has to behave identically on a 32-bit target with a different compiler.
  *
  * It needs no wiring. See README.md.
  */
@@ -52,7 +52,7 @@ static void test_header_layout(void)
     /*
      * A header built by one program and read by another must occupy the same
      * bytes. If the target's compiler padded this differently from the host's,
-     * an image written here would be unreadable there.
+     * an image written in one session would be unreadable in the next.
      */
     const bool size_ok = (sizeof(firmware_image_header_t) == 28);
     snprintf(detail, sizeof(detail), "%u bytes, expected 28",
@@ -168,7 +168,7 @@ static void test_hex_parser(void)
 }
 
 /* ------------------------------------------------------------------------
- * Image header and the boot decision
+ * Persistent image header
  * ---------------------------------------------------------------------- */
 
 static void test_image_header(void)

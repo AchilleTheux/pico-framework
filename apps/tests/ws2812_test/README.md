@@ -22,8 +22,9 @@ is the procedure (DESIGN_DOC.md section 19).
 The default profile assumes 16 LEDs on GPIO 10. `long_strip` assumes 50 LEDs on
 GPIO 11. `rp2040_zero` drives the board's single onboard WS2812 on GPIO 16 and
 needs no wiring. That profile loops blue, red, green, and off for one second
-each, providing an unambiguous visual check. To match a different bench setup, add a profile under
-`profiles/tests/ws2812_test/` rather than editing the source.
+each, providing an unambiguous visual check. To match a different bench setup,
+add a profile under `profiles/tests/ws2812_test/` rather than editing the
+source.
 
 ## Running
 
@@ -41,6 +42,12 @@ picocom -b 115200 /dev/ttyACM0
 The firmware narrates each step, then loops.
 
 ## Expected result
+
+With `PROFILE=rp2040_zero`, the onboard pixel continuously shows blue, red,
+green, and off for one second each. This exact loop and its colour order were
+visually confirmed on 2026-08-31.
+
+The other profiles run the full strip test:
 
 | Step | Expected |
 |------|----------|

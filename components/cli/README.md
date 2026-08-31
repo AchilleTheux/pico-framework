@@ -188,3 +188,7 @@ owns the UART; the transport only reads and writes it.
 
 * Host: `make test` covers dispatch, line editing, and every argument type.
 * Hardware: `make APP=tests/cli_test flash` — see that test's README.
+
+The stdio transport over USB CDC and the parser's representative success and
+error paths were exercised on an RP2040-Zero on 2026-08-31. The dedicated UART
+transport still needs an external USB-to-serial adapter test.

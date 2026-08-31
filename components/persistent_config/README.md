@@ -101,9 +101,10 @@ profile that gets committed.
 
 ## Status
 
-**Untested on hardware.** The format and every operation on it are host-tested;
-the two-slot behaviour on real flash is not, and the thing it exists for —
-surviving a power loss mid-save — needs someone to pull the power.
+The two-slot path is hardware-validated on an RP2040-Zero: saves alternated
+between slots, the sequence advanced, and a stored value reloaded after a
+reboot/reflash. An actual power cut during erase or program has not been tested,
+so recovery from a torn save remains unverified on silicon.
 
 ## Testing
 

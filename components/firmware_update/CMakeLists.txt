@@ -1,11 +1,8 @@
-# Firmware image format and the boot decision.
+# Firmware image format, staged receiver, service, and opt-in installer.
 #
-# firmware_image.c is pure: the image header, its checksums, and the rule for
-# choosing what to boot. The host tests compile it directly, so the part of a
-# bootloader that is most expensive to get wrong is verified without hardware.
-#
-# The flash-backed half — staging a received image and installing it — comes
-# later and will live beside it in this component.
+# firmware_image.c is pure: the persistent image header and its checksums. The
+# host tests compile it directly, so the format is verified without risking
+# target flash.
 
 add_library(pico_framework_firmware_update STATIC
     firmware_image.c

@@ -81,8 +81,10 @@ says which it is using.
 
 ## Status
 
-**Untested on hardware.** The byte order and sign extension are covered by host
-tests; the transfers are not, and cannot be without a device on a bus.
+The RP2040 I2C peripheral was configured as i2c1 on GPIO6/7 and completed an
+empty-bus scan on an RP2040-Zero, confirming that the bus was not stuck. No
+device acknowledged, so register transfers, byte order on the wire, and error
+handling with a real peripheral remain unverified on hardware.
 
 ## Testing
 

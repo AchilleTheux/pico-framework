@@ -13,7 +13,6 @@
 #      pico_framework_<name> and the alias pico_framework::<name>
 #   2. append <name> to PICO_FRAMEWORK_COMPONENTS below
 #
-# No components exist yet; they are ported in later implementation steps.
 set(PICO_FRAMEWORK_COMPONENTS
     crc
     ring_buffer
@@ -33,7 +32,6 @@ set(PICO_FRAMEWORK_COMPONENTS
     ax12
     feetech
     can
-    # wifi
 )
 
 function(pico_framework_add_components)

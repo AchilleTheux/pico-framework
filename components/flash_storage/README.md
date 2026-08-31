@@ -99,10 +99,11 @@ multicore application it usually means the other core has not called
 
 ## Status
 
-**Untested on hardware.** The bounds arithmetic and the layout are covered by
-host tests; the guard checks run on the target in `firmware_update_test` and
-are safe because they must refuse. The erase and program path itself is only
-exercised by that test's `write_flash` profile, which nobody has run yet.
+Erase, page program, readback verification, and repeated sector use are
+hardware-validated indirectly through `persistent_config` on an RP2040-Zero.
+The bounds arithmetic and layout remain host-tested. The staging-region
+`write_flash` profile and update workload have not run on hardware, nor has the
+multicore lockout path.
 
 ## Testing
 

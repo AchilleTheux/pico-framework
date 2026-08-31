@@ -1,9 +1,9 @@
 /*
- * Host-side tests for the firmware image header and the boot decision.
+ * Host-side tests for the persistent firmware image header.
  *
- * This is the part of a bootloader that is most expensive to get wrong and
- * cheapest to test: every one of these cases is something that happens when an
- * update is interrupted, and none of them needs a flash chip to reproduce.
+ * This format is expensive to get wrong and cheap to test: every one of these
+ * cases is something that happens when an update is interrupted, and none of
+ * them needs a flash chip to reproduce.
  */
 
 #include <string.h>
@@ -32,8 +32,8 @@ TEST(the_header_layout_is_fixed)
     /*
      * The header is written to flash by one program and read by another, so
      * its size and field offsets are a contract. A compiler that padded it
-     * differently would make an image written by the updater unreadable to the
-     * bootloader.
+     * differently would make an image written in one session unreadable in the
+     * next.
      */
     CHECK_EQ_INT(sizeof(firmware_image_header_t), 28);
     CHECK_EQ_INT(offsetof(firmware_image_header_t, magic), 0);
@@ -102,8 +102,8 @@ TEST(building_a_header_leaves_no_undefined_bytes)
 
 TEST(erased_flash_is_not_a_header)
 {
-    /* An erased sector reads as all ones. This is what the bootloader sees on
-       a board that has never been programmed. */
+    /* An erased manifest sector reads as all ones on a board that has never
+       staged an update. */
     firmware_image_header_t header;
     memset(&header, 0xFF, sizeof(header));
 

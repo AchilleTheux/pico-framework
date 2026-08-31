@@ -145,3 +145,8 @@ The split is what makes the colour logic host-testable (DESIGN_DOC.md section
 
 * Host: `make test` covers the colour and wire-encoding logic.
 * Hardware: `make APP=tests/ws2812_test flash` — see that test's README.
+
+The blocking PIO path and RGB colour order were visually confirmed on the
+Waveshare RP2040-Zero's onboard GPIO16 pixel on 2026-08-31. External strips,
+RGBW pixels, long-strip signal integrity, and the DMA path remain unverified on
+hardware.

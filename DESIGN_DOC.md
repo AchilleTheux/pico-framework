@@ -970,4 +970,8 @@ Recommended order:
 14. Add WiFi support without committing credentials.
 15. Document how to create a component, application, profile, and custom board.
 
+All 15 initial priorities are implemented. This list is retained as the order
+in which the framework was established; current implementation and physical
+validation status live in the top-level README and the component test READMEs.
+
 At that point the framework should already be useful for real projects, and additional architecture should be driven by actual needs rather than designed in advance.

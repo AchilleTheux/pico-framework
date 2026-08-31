@@ -44,4 +44,6 @@ built.
 Components must not hard-code project pins or peripherals; they take explicit
 configuration structures from the application (DESIGN_DOC.md section 13).
 
-No components exist yet — they are ported in implementation steps 8 onward.
+For the complete creation procedure—including API ownership, host tests,
+hardware benches, and CI coverage—see
+[`docs/extending-the-framework.md`](../docs/extending-the-framework.md).

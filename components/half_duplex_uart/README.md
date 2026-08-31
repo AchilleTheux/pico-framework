@@ -143,9 +143,10 @@ together with room left over.
 
 ## Caveats
 
-* **Untested on hardware.** The port is complete and builds clean for both
-  architectures, but no servo bus has been on the end of it yet. The loopback
-  test application is the way to check it; see below.
+* **Bare-pin loopback is hardware-validated.** On an RP2040-Zero the shared
+  GPIO path passed every byte value, echo suppression, and 57,600 through
+  1,000,000 baud (`11 checks, 0 failed`). A direction-controlled transceiver
+  and a real servo bus have not been tested.
 * **Pull-up.** The driver enables the pad's internal pull-up so a released line
   idles high. A real bus usually has a stronger external pull-up as well.
 * **GPIO base on RP2350B.** For pins above GPIO 31, set the PIO block's GPIO

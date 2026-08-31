@@ -108,16 +108,16 @@ settings puts its own `lwipopts.h` earlier on the include path.
 
 ## Not done
 
-* **Bluetooth.** The CYW43439 does BLE and Bluetooth Classic as well, through
-  BTstack, and the SDK supports both. That is a sibling component sharing
-  `cyw43_arch_init()`, not an extension of this one — and it needs the `btstack`
-  and `mbedtls` submodules, which are not initialised.
 * **TCP and UDP.** Kept separate on purpose, per §17. This component gets a link
   and an address; what goes over it is another component's business.
 * **Access point mode**, scanning, and static addressing.
 * **An external AT-command WiFi module.** The `Pamis_2026` firmware uses one over
   UART, which works on boards with no radio. Nothing here assumes CYW43 in its
   interface, so a second backend is possible without churning callers.
+
+Classic Bluetooth SPP is implemented by the sibling `bluetooth` component.
+The `bt_console_test/with_wifi` profile builds both against one shared
+`cyw43_arch`; neither radio path has yet been exercised on hardware.
 
 ## Status
 

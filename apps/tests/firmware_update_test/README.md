@@ -8,9 +8,9 @@ They cover it far more thoroughly — but the host and the target are not the
 same machine, and two things have to agree between them:
 
 * **The image header is written to flash byte for byte.** Its size and field
-  offsets are a contract between whatever builds an image and the bootloader
-  that reads one. A compiler that padded the struct differently would make an
-  image written by one unreadable to the other.
+  offsets are a contract between the session that verifies an image and the
+  later session that recovers it. A compiler that padded the struct differently
+  would make an image written by one unreadable to the other.
 * **CRC values must match.** An image checksummed by a build tool on a PC has
   to validate on the microcontroller, or no update ever completes.
 
@@ -62,6 +62,6 @@ reading every line.
 
 ## What this does not cover
 
-Anything touching flash. Nothing here erases or programs, and there is no
-bootloader yet — this is the logic that a bootloader will be built on, checked
-in isolation first.
+The default profile does not erase or program flash. The `write_flash` profile
+tests one staging sector, while the complete serial receive and opt-in install
+path belongs to `serial_update_test`.

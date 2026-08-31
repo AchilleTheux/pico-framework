@@ -46,8 +46,9 @@ extern "C" {
 
 /*
  * Written to flash verbatim, so the layout is part of the contract between the
- * updater and the bootloader. Fields are ordered to need no padding, and a
- * static assertion below fixes the size.
+ * session that verifies an image and the later session that recovers it.
+ * Fields are ordered to need no padding, and a static assertion below fixes
+ * the size.
  */
 typedef struct {
     uint32_t magic;

@@ -1,11 +1,11 @@
 # firmware_update
 
-The on-flash description of a firmware image, and the rule for deciding what to
-boot.
+The on-flash description of a firmware image, staged reception over a CLI, and
+the opt-in routine that installs a verified image in place.
 
-This is the part of an over-the-wire update that is most expensive to get wrong
-and cheapest to test, so it exists before any flash code does. Everything in it
-is pure and verified on the host.
+The format and receive state machine are the parts of an over-the-wire update
+that are most expensive to get wrong and cheapest to test, so their policy is
+kept independent of the Pico SDK and verified on the host.
 
 ## The problem it solves
 
@@ -16,8 +16,8 @@ board tries to run.
 
 ## Image header
 
-28 bytes, written to flash verbatim, so the layout is a contract between
-whatever builds an image and the bootloader that reads one:
+28 bytes, written to flash verbatim, so the layout is a contract between the
+service that verifies an image and the later session that recovers it:
 
 | Offset | Field | Purpose |
 |--------|-------|---------|
@@ -62,17 +62,22 @@ removed rather than kept as something that looks live and is not.
 
 ## Status
 
-The pure half is done and tested. The flash-backed half — staging a received
-image and installing it — is not written yet and will live beside it in this
-component. Until then nothing here touches flash.
+The image format, receiver, flash-backed service, persistent manifest, and
+RAM-resident in-place installer are implemented. The installer is compiled out
+unless `FIRMWARE_SERVICE_ENABLE_APPLY=ON`; a default build can stage and verify
+an image but cannot overwrite the running application.
+
+Host tests cover the pure policy and CI checks the host sender's predicted
+checksum against the device implementation over real linked HEX images. The
+flash-backed receive and install path has not yet run on hardware.
 
 ## Testing
 
-`make test` covers the layout, both checksums, and the boot rule. The cases
-that earn their place are the ones an interrupted update actually produces:
-erased flash, zeroed flash, a header with any single bit flipped anywhere in
-its covered range, a truncated payload, and every combination of the two slots'
-states.
+`make test` covers the header layout and checksums, Intel HEX decoding, staging
+address bounds, page assembly, out-of-order records, erased gaps, failure
+states, and the flash layout. The cases that earn their place are the ones an
+interrupted or reordered transfer actually produces. Manifest recovery and the
+CLI service are target-only and remain part of the pending hardware test.
 
 One known gap, stated rather than hidden: removing the `memset()` in
 `firmware_image_header_init()` does not fail any test, because the struct

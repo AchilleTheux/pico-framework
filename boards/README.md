@@ -31,7 +31,8 @@ on 2026-08-31:
 
 - minimal firmware identity and periodic output;
 - interactive CLI parsing and error paths;
-- onboard GPIO16 WS2812 animation sequence;
+- onboard GPIO16 WS2812 colour order and the timed blue/red/green/off loop,
+  visually confirmed;
 - bare-pin PIO half-duplex UART loopback at 57,600 through 1,000,000 baud
   (`11 checks, 0 failed`);
 - persistent configuration save, alternating flash slots, and reload after a
@@ -39,5 +40,7 @@ on 2026-08-31:
 - SDK-default i2c1 on GPIO6/7, with an empty-bus scan confirming that the bus
   was not stuck.
 
-CAN, servo, radio, and update transports still require their corresponding
-external hardware before they can be claimed as hardware-validated.
+CAN and servo tests still require their transceivers and peers; I2C needs a real
+device before register transfers are validated. Radio testing requires a Pico W
+or Pico 2 W, and the update installer remains deliberately unrun pending a
+review and BOOTSEL recovery setup.
