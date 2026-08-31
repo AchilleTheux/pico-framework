@@ -28,6 +28,7 @@ first two components.
 | [`hex_parser`](components/hex_parser/) | Intel HEX record decoding |
 | [`firmware_update`](components/firmware_update/) | image header and the boot decision (pure half) |
 | [`flash_storage`](components/flash_storage/) | bounded erase/program/read, and the flash layout |
+| [`i2c_device`](components/i2c_device/) | register access over I2C, with explicit byte order |
 
 Updating a board over a serial link, with no USB involved, is built from these:
 `hex_parser` decodes the image, `firmware_update` receives and verifies it,

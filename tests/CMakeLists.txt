@@ -181,3 +181,12 @@ target_include_directories(firmware_receive_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/firmware_update/include"
     "${PICO_FRAMEWORK_ROOT}/components/hex_parser/include"
 )
+
+host_test(i2c_bytes_test
+    SOURCES
+        tests/components/i2c_bytes_test.c
+        components/i2c_device/i2c_bytes.c
+)
+target_include_directories(i2c_bytes_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/i2c_device/include"
+)
