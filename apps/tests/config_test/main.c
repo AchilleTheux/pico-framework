@@ -24,7 +24,8 @@ static persistent_config_t config;
 
 static char line_buffer[320];
 static cli_t cli;
-static cli_command_t commands[CLI_BUILTIN_COMMAND_COUNT + 8u];
+/* Eight regular commands plus the separately registered churn command. */
+static cli_command_t commands[CLI_BUILTIN_COMMAND_COUNT + 9u];
 
 static int cmd_set(cli_t *c, void *user_data)
 {

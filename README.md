@@ -85,6 +85,7 @@ Defaults are `BOARD=pico APP=minimal PROFILE=default`.
 
 ```bash
 make                                          # pico / minimal / default
+make BOARD=rp2040_zero                        # Waveshare RP2040-Zero
 make BOARD=pico2                              # RP2350
 make BOARD=pico2_w                            # RP2350 with WiFi
 make BOARD=pico2 PROFILE=debug
@@ -114,6 +115,7 @@ build/
 
 ```bash
 make BOARD=pico2 APP=tests/ws2812_test flash
+make BOARD=rp2040_zero APP=tests/ws2812_test PROFILE=rp2040_zero flash
 ```
 
 Artifacts land in `build/$BOARD/$APP/$PROFILE/apps/$APP/app_$APP.{elf,uf2,bin,hex}`.
@@ -326,6 +328,7 @@ Every application builds warning-free with `-Werror` for:
 | BOARD      | Platform       | Architecture     |
 |------------|----------------|------------------|
 | `pico`     | rp2040         | Armv6-M          |
+| `rp2040_zero` | rp2040      | Armv6-M — Waveshare RP2040-Zero |
 | `pico2`    | rp2350-arm-s   | Armv8-M mainline |
 | `pico2_w`  | rp2350-arm-s   | Armv8-M mainline |
 | `bras_attrape_caisse` | rp2040 | Armv6-M — a custom header in `boards/` |

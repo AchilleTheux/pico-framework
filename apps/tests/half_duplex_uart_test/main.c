@@ -124,7 +124,11 @@ static void test_patterns(void)
 
     /* Every possible byte, in chunks, to catch a bit position that is wrong
        only for some values. */
-    uint8_t all[32];
+    /* ECHO_KEEP deliberately leaves echoed bytes in the hardware RX FIFO for
+       the caller.  The joined FIFO holds eight words, so consume one FIFO's
+       worth at a time instead of overflowing it while write() is still
+       transmitting. */
+    uint8_t all[8];
     bool every_byte_ok = true;
     for (unsigned base = 0; base < 256 && every_byte_ok; base += sizeof(all)) {
         for (unsigned i = 0; i < sizeof(all); i++) {

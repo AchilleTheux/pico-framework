@@ -20,7 +20,8 @@ is the procedure (DESIGN_DOC.md section 19).
 | 5V    | strip supply, *not* the Pico's 3V3 for a long strip |
 
 The default profile assumes 16 LEDs on GPIO 10. `long_strip` assumes 50 LEDs on
-GPIO 11. To match a different bench setup, add a profile under
+GPIO 11. `rp2040_zero` drives the board's single onboard WS2812 on GPIO 16 and
+needs no wiring. To match a different bench setup, add a profile under
 `profiles/tests/ws2812_test/` rather than editing the source.
 
 ## Running

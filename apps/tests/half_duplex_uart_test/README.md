@@ -43,7 +43,7 @@ half_duplex_uart_test  board=pico2 pin=21 dir=-1 baud=1000000
   [pass] loopback at 57600 baud              actual 57600 baud, error 0/1000
   ...
   [pass] echo suppression                    write ok, 0 stray bytes after
-  9 checks, 0 failed
+  11 checks, 0 failed
 ```
 
 All checks should pass. The counts are printed so a failure is obvious without

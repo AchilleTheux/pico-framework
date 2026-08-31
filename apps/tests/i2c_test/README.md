@@ -26,6 +26,7 @@ for 4.7 kΩ resistors on a real board.
 | Profile | Bus |
 |---------|-----|
 | `default` | i2c0 on GPIO 4/5, 100 kHz, internal pull-ups |
+| `rp2040_zero` | SDK-default i2c1 on GPIO 6/7, 100 kHz, internal pull-ups |
 | `bras_left` | i2c0 on GPIO 12/13, 400 kHz — the left sensor bus of `bras_attrape_caisse` |
 | `bras_right` | i2c1 on GPIO 14/15, 400 kHz — its right sensor bus |
 
