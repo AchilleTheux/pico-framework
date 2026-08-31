@@ -27,6 +27,8 @@ MATRIX=(
     "pico:tests/ws2812_test:default"
     "pico2:tests/ws2812_test:default"
     "pico2:tests/ws2812_test:long_strip"
+    "pico:tests/ws2812_test:dma"
+    "pico2:tests/ws2812_test:dma"
     "pico:tests/cli_test:default"
     "pico2:tests/cli_test:default"
     "pico2:tests/cli_test:uart"

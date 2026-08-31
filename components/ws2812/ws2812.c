@@ -1,6 +1,7 @@
 #include "ws2812.h"
 
 #include "hardware/clocks.h"
+#include "hardware/dma.h"
 #include "pico/time.h"
 
 #include "ws2812.pio.h"
@@ -71,6 +72,30 @@ static void state_machine_configure(const ws2812_strip_t *strip, uint32_t freque
     pio_sm_set_enabled(strip->pio, strip->sm, true);
 }
 
+/*
+ * Set up the channel that feeds the state machine.
+ *
+ * pio_get_dreq() rather than an arithmetic guess: the data request number for a
+ * TX FIFO depends on which PIO block and which state machine, and the mapping
+ * differs between RP2040's two blocks and RP2350's three. Working it out by
+ * hand is how a strip ends up driven by the wrong FIFO's pacing.
+ */
+static void dma_configure(ws2812_strip_t *strip)
+{
+    dma_channel_config c = dma_channel_get_default_config((uint)strip->dma_channel);
+
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
+    channel_config_set_read_increment(&c, true);
+    channel_config_set_write_increment(&c, false);
+    channel_config_set_dreq(&c, pio_get_dreq(strip->pio, strip->sm, true));
+
+    dma_channel_configure((uint)strip->dma_channel, &c,
+                          &strip->pio->txf[strip->sm],  /* always the same word */
+                          strip->wire_buffer,
+                          strip->length,
+                          false);                        /* started per frame */
+}
+
 ws2812_result_t ws2812_init(ws2812_strip_t *strip, const ws2812_config_t *config)
 {
     if (strip == NULL || config == NULL || config->pio == NULL ||
@@ -89,6 +114,16 @@ ws2812_result_t ws2812_init(ws2812_strip_t *strip, const ws2812_config_t *config
         return WS2812_ERR_NO_STATE_MACHINE;
     }
 
+    int dma_channel = -1;
+    if (config->wire_buffer != NULL) {
+        dma_channel = dma_claim_unused_channel(false);
+        if (dma_channel < 0) {
+            pio_sm_unclaim(config->pio, (uint)sm);
+            program_release(config->pio);
+            return WS2812_ERR_NO_DMA_CHANNEL;
+        }
+    }
+
     *strip = (ws2812_strip_t){
         .pio         = config->pio,
         .sm          = (uint)sm,
@@ -98,11 +133,17 @@ ws2812_result_t ws2812_init(ws2812_strip_t *strip, const ws2812_config_t *config
         .length      = config->length,
         .is_rgbw     = config->is_rgbw,
         .brightness  = 255,
+        .wire_buffer = config->wire_buffer,
+        .dma_channel = dma_channel,
         .initialised = true,
     };
 
     state_machine_configure(strip,
         config->frequency_hz != 0 ? config->frequency_hz : WS2812_DEFAULT_FREQUENCY_HZ);
+
+    if (strip->dma_channel >= 0) {
+        dma_configure(strip);
+    }
 
     ws2812_clear(strip);
     return WS2812_OK;
@@ -112,6 +153,14 @@ void ws2812_deinit(ws2812_strip_t *strip)
 {
     if (strip == NULL || !strip->initialised) {
         return;
+    }
+
+    if (strip->dma_channel >= 0) {
+        /* Abort rather than wait: deinit may well be being called because
+           something has gone wrong. */
+        dma_channel_abort((uint)strip->dma_channel);
+        dma_channel_unclaim((uint)strip->dma_channel);
+        strip->dma_channel = -1;
     }
 
     pio_sm_set_enabled(strip->pio, strip->sm, false);
@@ -165,14 +214,112 @@ uint8_t ws2812_get_brightness(const ws2812_strip_t *strip)
     return (strip != NULL && strip->initialised) ? strip->brightness : 0;
 }
 
+/* The sticky flag the state machine raises when it stalls on an empty FIFO,
+   which is how "everything has been clocked out" is detected. */
+static uint32_t stall_mask(const ws2812_strip_t *strip)
+{
+    return 1u << (PIO_FDEBUG_TXSTALL_LSB + strip->sm);
+}
+
+/* Convert the pixel buffer into wire words, applying brightness on the way. */
+static void fill_wire_buffer(ws2812_strip_t *strip)
+{
+    for (uint16_t i = 0; i < strip->length; i++) {
+        const ws2812_color_t color = strip->brightness == 255
+            ? strip->pixels[i]
+            : ws2812_color_scale(strip->pixels[i], strip->brightness);
+        strip->wire_buffer[i] = ws2812_color_to_wire(color, strip->is_rgbw);
+    }
+}
+
+bool ws2812_is_busy(ws2812_strip_t *strip)
+{
+    if (strip == NULL || !strip->initialised) {
+        return false;
+    }
+
+    /* Still feeding the FIFO. */
+    if (strip->dma_channel >= 0 && dma_channel_is_busy((uint)strip->dma_channel)) {
+        return true;
+    }
+
+    /*
+     * The FIFO may be drained but the state machine still clocking out the last
+     * pixel. It raises the stall flag when it runs dry; until then the wire is
+     * still busy.
+     */
+    if ((strip->pio->fdebug & stall_mask(strip)) == 0) {
+        return true;
+    }
+
+    /*
+     * Transmission is over. What remains is the strip's latch time, which is
+     * counted from the moment the machine went quiet rather than from the start
+     * of the frame — so the deadline is recorded the first time it is seen.
+     */
+    if (strip->latch_ready_us == 0) {
+        strip->latch_ready_us = time_us_64() + WS2812_RESET_US;
+    }
+
+    return time_us_64() < strip->latch_ready_us;
+}
+
+void ws2812_wait(ws2812_strip_t *strip)
+{
+    while (ws2812_is_busy(strip)) {
+        tight_loop_contents();
+    }
+}
+
+ws2812_result_t ws2812_show_async(ws2812_strip_t *strip)
+{
+    if (strip == NULL || !strip->initialised) {
+        return WS2812_ERR_INVALID_ARG;
+    }
+    if (strip->dma_channel < 0) {
+        return WS2812_ERR_NO_WIRE_BUFFER;
+    }
+    if (ws2812_is_busy(strip)) {
+        return WS2812_ERR_BUSY;
+    }
+
+    /*
+     * Copied now, not read during the transfer, so the caller may go on
+     * modifying the pixel buffer the moment this returns. That is the whole
+     * reason the wire buffer is a second array rather than the pixel buffer
+     * reinterpreted.
+     */
+    fill_wire_buffer(strip);
+
+    /* Cleared before the transfer, so seeing it again means *this* frame has
+       finished rather than the last one. */
+    strip->pio->fdebug = stall_mask(strip);
+    strip->latch_ready_us = 0;
+
+    dma_channel_transfer_from_buffer_now((uint)strip->dma_channel,
+                                         strip->wire_buffer, strip->length);
+    return WS2812_OK;
+}
+
 void ws2812_show(ws2812_strip_t *strip)
 {
     if (strip == NULL || !strip->initialised) {
         return;
     }
 
-    const uint32_t stall_mask = 1u << (PIO_FDEBUG_TXSTALL_LSB + strip->sm);
+    if (strip->dma_channel >= 0) {
+        /* Same path as the async one, then wait. Keeping one implementation of
+           the transfer means the blocking and non-blocking cases cannot drift. */
+        if (ws2812_show_async(strip) == WS2812_ERR_BUSY) {
+            ws2812_wait(strip);
+            (void)ws2812_show_async(strip);
+        }
+        ws2812_wait(strip);
+        return;
+    }
 
+    /* No wire buffer: push straight into the FIFO, which needs no extra memory
+       and is all a caller that never animates requires. */
     for (uint16_t i = 0; i < strip->length; i++) {
         const ws2812_color_t color = strip->brightness == 255
             ? strip->pixels[i]
@@ -186,8 +333,8 @@ void ws2812_show(ws2812_strip_t *strip)
      * flag first means an already-idle machine still re-asserts it, because it
      * keeps retrying the pull it is blocked on.
      */
-    strip->pio->fdebug = stall_mask;
-    while ((strip->pio->fdebug & stall_mask) == 0) {
+    strip->pio->fdebug = stall_mask(strip);
+    while ((strip->pio->fdebug & stall_mask(strip)) == 0) {
         tight_loop_contents();
     }
 

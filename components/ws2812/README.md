@@ -10,15 +10,62 @@ PIO-driven WS2812 / WS2812B / SK6812 addressable LED strips.
   memory.
 * RGB (24-bit) and RGBW (32-bit) strips.
 * Non-destructive global brightness, applied when the frame is sent.
+* Optional DMA transmission, so a main loop need not wait 1.9 ms a frame.
 * Colour helpers: named constants, integer HSV, and linear interpolation.
 
-## What it does not do
+## Blocking or DMA
 
-Transmission is synchronous. `ws2812_show()` blocks for about 30 us per RGB
-pixel plus the 300 us latch gap — roughly 1.9 ms for 60 pixels. That matches
-DESIGN_DOC.md section 8: the first API is synchronous, and a DMA-backed
-asynchronous path is worth adding when an application's main loop actually
-cannot afford the wait.
+The wire takes about 30 us per RGB pixel plus a 300 us latch gap either way —
+roughly 1.9 ms for 60 pixels. What differs is whether the processor spends it
+waiting.
+
+| | Needs | `show()` | `show_async()` |
+|---|---|---|---|
+| FIFO | nothing extra | blocks ~1.9 ms | not available |
+| DMA | a `wire_buffer` | blocks ~1.9 ms | returns in microseconds |
+
+```c
+static ws2812_color_t pixels[60];
+static uint32_t wire_buffer[60];        /* what enables DMA */
+
+const ws2812_config_t config = {
+    .pio = pio0, .pin = 10,
+    .pixels = pixels, .length = count_of(pixels),
+    .wire_buffer = wire_buffer,
+};
+```
+
+Then a main loop never has to wait:
+
+```c
+if (!ws2812_is_busy(&strip)) {
+    paint(&strip);
+    ws2812_show_async(&strip);          /* returns at once */
+}
+/* ... the rest of the control cycle ... */
+```
+
+`show_async()` returns `WS2812_ERR_BUSY` if the previous frame is still going
+out; an animation should treat that as "skip this frame" rather than an error.
+
+**The wire buffer has to be separate from the pixels.** The wire format is a
+different packing of the same colours and brightness is applied on the way out,
+so the array handed to DMA cannot be the one the application authors into. It
+costs four bytes a pixel — 240 bytes for a 60-LED strip — and buys the property
+that matters: the pixel buffer is copied during `show_async()`, not read during
+the transfer, so it can be modified again the moment the call returns.
+
+Leaving `wire_buffer` NULL keeps the FIFO path and costs nothing, which is all
+a caller that sets a colour occasionally needs.
+
+`is_busy()` accounts for all three phases: DMA still feeding the FIFO, the
+state machine still clocking out the last pixel, and the latch gap after it.
+The gap is timed from when the machine went quiet rather than from the start of
+the frame, which is why `is_busy()` takes a non-const strip — it records the
+deadline the first time it sees the transfer end.
+
+Both paths share one implementation of the transfer, so the blocking and
+non-blocking cases cannot drift apart.
 
 ## Usage
 

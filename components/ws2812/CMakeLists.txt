@@ -22,4 +22,5 @@ target_link_libraries(pico_framework_ws2812 PUBLIC
     pico_stdlib
     hardware_pio
     hardware_clocks
+    hardware_dma
 )

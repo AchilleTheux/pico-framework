@@ -6,9 +6,11 @@
  * strips may coexist, each on its own state machine; strips sharing a PIO block
  * share a single copy of the loaded program.
  *
- * Transmission is synchronous: ws2812_show() returns once the last bit has left
- * the state machine and the strip's latch time has elapsed (DESIGN_DOC.md
- * section 8). Sending 60 RGB pixels takes roughly 1.9 ms.
+ * Transmission can be either blocking or DMA-driven. Sending 60 RGB pixels
+ * occupies the wire for about 1.9 ms either way; the difference is whether the
+ * processor spends it waiting. Give the strip a `wire_buffer` and
+ * ws2812_show_async() hands the frame to DMA and returns immediately, which is
+ * what a main loop with a control cycle to run actually wants.
  */
 
 #ifndef PICO_FRAMEWORK_WS2812_H
@@ -36,6 +38,9 @@ typedef enum {
     WS2812_ERR_INVALID_ARG,   /* null pointer, zero length, or bad pin */
     WS2812_ERR_NO_STATE_MACHINE,
     WS2812_ERR_NO_PROGRAM_SPACE,
+    WS2812_ERR_NO_DMA_CHANNEL,
+    WS2812_ERR_NO_WIRE_BUFFER, /* async asked for without one configured */
+    WS2812_ERR_BUSY,           /* the previous frame is still going out */
 } ws2812_result_t;
 
 typedef struct {
@@ -56,6 +61,21 @@ typedef struct {
 
     /* 0 selects WS2812_DEFAULT_FREQUENCY_HZ. */
     uint32_t frequency_hz;
+
+    /*
+     * Optional, and what enables DMA. Caller-owned, at least `length` words,
+     * valid for as long as the strip is initialised.
+     *
+     * It has to be separate from `pixels` rather than shared with it: the wire
+     * format is a different packing of the same colours, and brightness is
+     * applied on the way out, so the buffer handed to DMA cannot be the one the
+     * application authors into. That costs four bytes a pixel — 240 bytes for a
+     * 60-LED strip — in exchange for not blocking the processor for 1.9 ms a
+     * frame.
+     *
+     * NULL leaves only the blocking path, which needs no extra memory.
+     */
+    uint32_t *wire_buffer;
 } ws2812_config_t;
 
 /* Opaque to callers in practice; laid out here so it can live in .bss. */
@@ -68,6 +88,14 @@ typedef struct {
     uint16_t length;
     bool is_rgbw;
     uint8_t brightness;
+
+    uint32_t *wire_buffer;
+    int dma_channel;        /* -1 when there is no wire buffer */
+
+    /* When the strip may next be written to, in microseconds. Set when the
+       state machine runs dry, so the latch gap is enforced without blocking. */
+    uint64_t latch_ready_us;
+
     bool initialised;
 } ws2812_strip_t;
 
@@ -104,10 +132,35 @@ static inline uint16_t ws2812_length(const ws2812_strip_t *strip)
 }
 
 /*
- * Transmit the buffer and wait out the latch time. Blocks for roughly
- * 30 us per RGB pixel plus WS2812_RESET_US.
+ * Transmit the buffer and wait until the strip is ready for the next frame.
+ * Blocks for roughly 30 us per RGB pixel plus WS2812_RESET_US.
+ *
+ * Uses DMA when a wire buffer was configured and the FIFO otherwise; either
+ * way it returns only when the frame is out and latched.
  */
 void ws2812_show(ws2812_strip_t *strip);
+
+/*
+ * Hand the frame to DMA and return at once.
+ *
+ * Requires a wire buffer. The pixel buffer is read during this call, not
+ * during the transfer, so it may be modified as soon as this returns — the
+ * copy into wire format is what makes that safe.
+ *
+ * Returns WS2812_ERR_BUSY if the previous frame is still going out or its latch
+ * gap has not elapsed; nothing is sent in that case. A caller driving
+ * animations should treat that as "skip this frame", not as an error.
+ */
+ws2812_result_t ws2812_show_async(ws2812_strip_t *strip);
+
+/*
+ * True while a frame is still being transmitted, or while the latch gap after
+ * one has yet to elapse. False means ws2812_show_async() will accept a frame.
+ */
+bool ws2812_is_busy(ws2812_strip_t *strip);
+
+/* Block until ws2812_is_busy() is false. Returns immediately if it already is. */
+void ws2812_wait(ws2812_strip_t *strip);
 
 #ifdef __cplusplus
 }
