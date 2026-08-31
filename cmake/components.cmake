@@ -32,6 +32,7 @@ set(PICO_FRAMEWORK_COMPONENTS
     servo_bus
     ax12
     feetech
+    can
     # wifi
 )
 

@@ -142,6 +142,17 @@ target_include_directories(ring_buffer_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/ring_buffer/include"
 )
 
+host_test(can_frame_test
+    SOURCES
+        tests/components/can_frame_test.c
+        components/can/can_frame.c
+        components/ring_buffer/ring_buffer.c
+)
+target_include_directories(can_frame_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/can/include"
+    "${PICO_FRAMEWORK_ROOT}/components/ring_buffer/include"
+)
+
 host_test(hex_parser_test
     SOURCES
         tests/components/hex_parser_test.c

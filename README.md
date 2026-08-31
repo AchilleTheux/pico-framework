@@ -34,6 +34,7 @@ first two components.
 | [`logging`](components/logging/) | levelled logging, compile-time filtered, several sinks |
 | [`wifi`](components/wifi/) | CYW43 station-mode connection management, with reconnect |
 | [`bluetooth`](components/bluetooth/) | a serial console over Classic Bluetooth SPP |
+| [`can`](components/can/) | CAN 2.0B over one PIO block with can2040 |
 
 Updating a board over a serial link, with no USB involved, is built from these:
 `hex_parser` decodes the image, `firmware_update` receives and verifies it,
@@ -169,6 +170,7 @@ cmake/
   project_options.cmake framework-wide settings, BOARD/APP/PROFILE plumbing
   components.cmake      explicit registration list for reusable components
 lib/pico-sdk/           Pico SDK, pinned submodule
+lib/can2040/            PIO CAN controller, pinned submodule
 components/ws2812/      addressable LED strips
 components/cli/         command interpreter
 components/half_duplex_uart/  single-wire UART for servo buses
@@ -306,15 +308,16 @@ verified with:
 | Tool                | Version pinned / verified            |
 |---------------------|--------------------------------------|
 | Pico SDK            | `2.3.0` (submodule, detached tag)     |
+| can2040             | `2988d4f` (submodule)                 |
 | CMake               | 4.4.2 (minimum required: 3.13)        |
 | `arm-none-eabi-gcc` | 16.2.0                                |
 | Ninja               | used when present; Make otherwise     |
 | picotool            | 2.3.0 (for `make flash`)              |
 | Python 3            | 3.14 (required by the SDK build)      |
 
-Only `lib/pico-sdk/lib/tinyusb` is initialized by default beyond the SDK
-itself; `git submodule update --init --recursive` fetches the rest (cyw43,
-lwIP, mbedTLS, BTstack) needed for wireless boards.
+The top-level submodules provide the Pico SDK and can2040. Within the SDK, only
+TinyUSB is initialized by default; `git submodule update --init --recursive`
+fetches the rest (cyw43, lwIP, mbedTLS, BTstack) needed for wireless boards.
 
 ## Verified builds
 

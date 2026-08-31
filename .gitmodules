@@ -1,3 +1,6 @@
 [submodule "lib/pico-sdk"]
 	path = lib/pico-sdk
 	url = https://github.com/raspberrypi/pico-sdk.git
+[submodule "lib/can2040"]
+	path = lib/can2040
+	url = https://github.com/KevinOConnor/can2040.git

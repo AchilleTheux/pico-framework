@@ -36,6 +36,9 @@ MATRIX=(
     "pico:tests/half_duplex_uart_test:default"
     "pico2:tests/half_duplex_uart_test:default"
     "pico2:tests/half_duplex_uart_test:transceiver"
+    "pico:tests/can_test:default"
+    "pico2:tests/can_test:default"
+    "pico2:tests/can_test:monitor"
     "pico:tests/servo_test:ax12"
     "pico2:tests/servo_test:ax12"
     "pico2:tests/servo_test:feetech_sts"
@@ -98,6 +101,7 @@ printf '  %-22s %s\n' "ninja"       "$(ninja --version 2>/dev/null || echo 'not 
 printf '  %-22s %s\n' "picotool"    "$(picotool version 2>/dev/null | head -1 || echo 'not installed')"
 printf '  %-22s %s\n' "python"      "$(python3 --version)"
 printf '  %-22s %s\n' "pico-sdk"    "$(git -C lib/pico-sdk describe --tags --always) ($(git -C lib/pico-sdk rev-parse --short HEAD))"
+printf '  %-22s %s\n' "can2040"     "$(git -C lib/can2040 describe --tags --always) ($(git -C lib/can2040 rev-parse --short HEAD))"
 echo
 
 # ---------------------------------------------------------------------------
