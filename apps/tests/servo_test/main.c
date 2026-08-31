@@ -17,7 +17,11 @@
 
 #include "pico/stdlib.h"
 
+/* Labels this file's output; see log.h. */
+#define LOG_TAG "servo"
+
 #include "cli.h"
+#include "log.h"
 #include "cli_builtins.h"
 #include "cli_stream.h"
 #include "half_duplex_uart.h"
@@ -82,6 +86,10 @@ static bool leds_ready;
 
 static half_duplex_uart_t uart;
 static servo_bus_t bus;
+
+/* Keeps the most recent output, so the lines just before something went wrong
+   are still there when the console was not being watched. */
+static uint8_t log_memory[1024];
 
 static char line_buffer[128];
 static cli_t cli;
@@ -166,6 +174,13 @@ static void show_outcome(bool ok)
 static int fail(cli_t *c, servo_bus_result_t result)
 {
     cli_printf(c, "error: %s\r\n", servo_bus_result_name(result));
+
+    /*
+     * Also logged, so a failure that happened while nobody was reading the
+     * console is still in the memory sink afterwards.
+     */
+    LOG_WARN("transaction failed: %s", servo_bus_result_name(result));
+
     show_outcome(false);
     return CLI_ERR_FAILED;
 }
@@ -595,6 +610,46 @@ static int cmd_sync(cli_t *c, void *user_data)
     return CLI_OK;
 }
 
+static int cmd_log(cli_t *c, void *user_data)
+{
+    (void)user_data;
+
+    const char *wanted = cli_next_token(c);
+    if (wanted == NULL) {
+        cli_printf(c, "level %s\r\n", log_level_name(log_get_level()));
+        return CLI_OK;
+    }
+
+    log_level_t level;
+    if (!log_level_parse(wanted, &level)) {
+        cli_write(c, "level must be trace, debug, info, warn, error or none\r\n");
+        return CLI_ERR_ARG;
+    }
+
+    log_set_level(level);
+    cli_printf(c, "level now %s\r\n", log_level_name(level));
+    LOG_INFO("log level set to %s", log_level_name(level));
+    return CLI_OK;
+}
+
+static int cmd_log_dump(cli_t *c, void *user_data)
+{
+    (void)user_data;
+
+    char chunk[256];
+    size_t total = 0;
+    size_t got;
+
+    /* Drains the buffer, which is what you want after reading it once. */
+    while ((got = log_read_memory(chunk, sizeof(chunk))) > 0) {
+        cli_write_bytes(c, chunk, got);
+        total += got;
+    }
+
+    cli_printf(c, "\r\n%u bytes\r\n", (unsigned)total);
+    return CLI_OK;
+}
+
 static const cli_command_t own_commands[] = {
     { "scan",   "find every servo on the bus",        cmd_scan,        NULL },
     { "ping",   "ping <id>",                          cmd_ping,        NULL },
@@ -602,6 +657,8 @@ static const cli_command_t own_commands[] = {
     { "write",  "write <id> <register> <value>",      cmd_write,       NULL },
     { "pos",    "pos <id> [position] - get or set",   cmd_pos,         NULL },
     { "sync",   "sync <id> <pos> ... - all at once",  cmd_sync,        NULL },
+    { "log",    "log [level] - show or set the level", cmd_log,         NULL },
+    { "logdump", "the recent log held in memory",      cmd_log_dump,    NULL },
     { "torque", "torque <id> <0|1>",                  cmd_torque,      NULL },
     { "status", "status <id> - everything at once",   cmd_status,      NULL },
     { "regs",   "list the control table",             cmd_regs,        NULL },
@@ -627,6 +684,10 @@ int main(void)
            hear our own bytes and must consume them. This is also the default. */
         .echo = HALF_DUPLEX_UART_ECHO_DISCARD,
     };
+
+    log_init(LOG_LEVEL_INFO);
+    log_add_stdio_sink(LOG_LEVEL_INFO);
+    log_add_memory_sink(log_memory, sizeof(log_memory), LOG_LEVEL_DEBUG);
 
     const half_duplex_uart_result_t uart_result =
         half_duplex_uart_init(&uart, &uart_config);

@@ -199,3 +199,12 @@ host_test(config_store_test
 target_include_directories(config_store_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/persistent_config/include"
 )
+
+host_test(log_format_test
+    SOURCES
+        tests/components/log_format_test.c
+        components/logging/log_format.c
+)
+target_include_directories(log_format_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/logging/include"
+)

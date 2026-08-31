@@ -41,6 +41,8 @@ MATRIX=(
     "pico2:tests/servo_test:feetech_sts"
     "pico2:tests/servo_test:feetech_scs"
     "pico2:tests/servo_test:ax12_leds"
+    # A build with most logging compiled out, to keep that path exercised.
+    "pico2:tests/servo_test:quiet"
     "pico:tests/firmware_update_test:default"
     "pico2:tests/firmware_update_test:default"
     # A custom board header from boards/, to keep the board mechanism covered.

@@ -36,6 +36,7 @@ target_link_libraries(app_servo_test PRIVATE
     pico_framework::ax12
     pico_framework::feetech
     pico_framework::ws2812
+    pico_framework::logging
 )
 
 pico_framework_set_warnings(main.c)
