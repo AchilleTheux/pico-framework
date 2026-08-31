@@ -52,8 +52,31 @@ JOBS ?= $(shell nproc 2>/dev/null || echo 4)
 
 PICOTOOL ?= picotool
 
-.PHONY: all build configure reconfigure clean distclean flash size apps profiles \
-        test test-build ci help
+# --------------------------------------------------------------------------
+# Serial port for flash-serial
+#
+# Accepts either form, because both read naturally:
+#
+#   make flash-serial PORT=/dev/ttyACM0
+#   make flash-serial /dev/ttyACM0
+#
+# The second works by treating any goal that looks like a device path as the
+# port rather than as something to build. Left unset, the script picks the port
+# when exactly one is present and lists them when there is a choice.
+# --------------------------------------------------------------------------
+
+SERIAL_PORT_GOALS := $(filter /dev/%,$(MAKECMDGOALS))
+PORT ?= $(firstword $(SERIAL_PORT_GOALS))
+
+ifneq ($(SERIAL_PORT_GOALS),)
+# Stop make trying to build the device path as a target of its own.
+$(SERIAL_PORT_GOALS):
+	@:
+.PHONY: $(SERIAL_PORT_GOALS)
+endif
+
+.PHONY: all build configure reconfigure clean distclean flash flash-serial size \
+        apps profiles test test-build ci help
 .DEFAULT_GOAL := all
 
 # --------------------------------------------------------------------------
@@ -169,6 +192,12 @@ flash: build
 		echo "error: $(PICOTOOL) not found in PATH"; exit 1; }
 	$(PICOTOOL) load -f -x "$(UF2)"
 
+# Flashes the board on a named serial port, without needing BOOTSEL. Asks that
+# board to reboot into the bootloader, then loads over USB; see the script for
+# what that does and does not cover.
+flash-serial: build
+	@"$(ROOT)/scripts/flash-serial.sh" "$(UF2)" "$(PORT)"
+
 size: build
 	@arm-none-eabi-size "$(ELF)"
 
@@ -195,6 +224,8 @@ help:
 	@echo "  configure        configure the build directory only"
 	@echo "  reconfigure      delete and re-configure (after editing a profile)"
 	@echo "  flash            build, then load over USB with picotool"
+	@echo "  flash-serial     reboot the board on PORT, then load. Takes"
+	@echo "                   PORT=/dev/ttyACM0 or a bare /dev/ttyACM0"
 	@echo "  size             build, then report section sizes"
 	@echo "  test             build and run the host-side unit tests"
 	@echo "  ci               everything CI checks: tests plus the build matrix"

@@ -113,6 +113,7 @@ Artifacts land in `build/$BOARD/$APP/$PROFILE/apps/$APP/app_$APP.{elf,uf2,bin,he
 | `configure`   | configure the build directory only                          |
 | `reconfigure` | delete and re-configure — needed after editing a profile     |
 | `flash`       | build, then load over USB with `picotool`                    |
+| `flash-serial`| reboot the board on a named serial port, then load           |
 | `test`        | build and run the host-side unit tests                      |
 | `ci`          | everything CI checks: tests plus the whole build matrix      |
 | `size`        | build, then report section sizes                            |
@@ -209,6 +210,43 @@ written against that specification rather than against the implementation:
 `servo_protocol_test.c` checks the packet builder byte for byte against the
 worked examples in the AX-12 datasheet, so a consistent misreading of the
 format cannot pass.
+
+### Flashing without the BOOTSEL button
+
+`make flash` already avoids the button. Every application here is built with
+`pico_enable_stdio_usb`, and the SDK then enables two reset paths by default: a
+vendor USB interface, which is what `picotool load -f` uses to reset a running
+board, and a 1200-baud touch on the CDC port.
+
+`make flash-serial` addresses the case `picotool` alone handles badly — several
+boards plugged in at once:
+
+```bash
+make flash-serial /dev/ttyACM0
+make BOARD=pico2 APP=tests/servo_test PROFILE=ax12 flash-serial PORT=/dev/ttyACM1
+```
+
+Both spellings work. With no port given it picks the only one present, and
+lists them when there is a choice.
+
+It asks the firmware on that port to reboot, two ways, since which one applies
+depends on how the board is attached:
+
+| Mechanism | Works with |
+|---|---|
+| the CLI command `bootsel` | firmware with the `cli` component and a command calling `reset_usb_boot()` — including over a real UART |
+| a 1200-baud touch | any firmware built with `pico_enable_stdio_usb`; USB CDC only |
+
+Then it waits for the board in BOOTSEL and loads with `picotool`.
+
+**The upload is still over USB.** What naming a port buys is knowing *which*
+board gets flashed: rebooting through one specific port puts exactly one board
+into BOOTSEL, where `picotool load -f` on a busy bench picks one for you. A
+genuine serial-only upload needs the resident bootloader that is not built yet;
+when it exists it belongs in the same script, tried before the USB path.
+
+Overridable through the environment: `SERIAL_RESET_COMMAND`, `SERIAL_RESET_BAUD`,
+`SERIAL_RESET_TIMEOUT`.
 
 ### CI
 
