@@ -6,6 +6,8 @@ A line-oriented command interpreter for debugging and hardware bring-up.
 
 * Command table with case-insensitive names, per-command `user_data`, and a
   built-in `help` / `?`.
+* A ready-made set of the commands every firmware wants: `ping`, `version`,
+  `uptime`, `reboot`, `bootsel`.
 * Argument parsing: unsigned, signed, hex, float, tokens, and free text.
 * Line editing: backspace and delete, optional echo, optional prompt.
 * Never blocks, never allocates. `cli_poll()` takes whatever the transport has
@@ -82,6 +84,37 @@ Link it from the application:
 ```cmake
 target_link_libraries(app_my_firmware PRIVATE pico_framework::cli)
 ```
+
+## Built-in commands
+
+```c
+#include "cli_builtins.h"
+
+cli_command_t commands[CLI_BUILTIN_COMMAND_COUNT + 4];
+size_t count = cli_builtin_commands(commands, count_of(commands));
+commands[count++] = (cli_command_t){ "mine", "...", cmd_mine, NULL };
+```
+
+| Command | |
+|---------|--|
+| `ping` | answers `pong`. The cheapest possible "is it alive" |
+| `version` | board, SDK version, build type |
+| `uptime` | milliseconds since reset |
+| `reboot` | restarts the firmware |
+| `bootsel` | restarts into the USB bootloader, so `picotool` can flash it without anyone pressing the button |
+
+Every test application here had been writing some subset of these by hand,
+slightly differently. They live in `cli_builtins.c` rather than in `cli.c`
+because they need the Pico SDK — the bootrom, the watchdog, the timer — and
+`cli.c` is deliberately free of it so the interpreter can be host-tested. The
+one built-in that does live in `cli.c` is `help`, since enumerating the command
+table is something only the interpreter can do.
+
+**`cli_init()` refuses two commands with the same name**, case-insensitively.
+Lookup takes the first match, so a duplicate would leave one silently
+unreachable — a real hazard once a ready-made set exists, and one whose
+behaviour would depend on registration order. Better a startup failure than a
+command that quietly does nothing.
 
 ## Sharing the line with something that is not a command
 

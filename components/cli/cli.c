@@ -508,6 +508,20 @@ cli_init_result_t cli_init(cli_t *cli, const cli_config_t *config)
         if (config->commands[i].name == NULL || config->commands[i].name[0] == '\0') {
             return CLI_INIT_ERR_INVALID_ARG;
         }
+
+        /*
+         * Two commands with the same name would leave the second unreachable,
+         * since lookup takes the first match. That became a real hazard once
+         * the built-in commands existed: an application adding its own `ping`
+         * alongside cli_builtin_commands() would find one of them silently
+         * ignored, and which one depends on the order they were registered.
+         * Refusing at init makes it a build-time mistake instead.
+         */
+        for (size_t j = 0; j < i; j++) {
+            if (equals_ignore_case(config->commands[i].name, config->commands[j].name)) {
+                return CLI_INIT_ERR_DUPLICATE_COMMAND;
+            }
+        }
     }
 
     *cli = (cli_t){

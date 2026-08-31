@@ -130,6 +130,14 @@ typedef struct {
 typedef enum {
     CLI_INIT_OK = 0,
     CLI_INIT_ERR_INVALID_ARG,
+
+    /*
+     * Two commands share a name, case-insensitively. Rejected rather than
+     * tolerated because lookup takes the first match, so the other would be
+     * silently unreachable — easy to do by accident once an application adds
+     * its own commands alongside cli_builtin_commands().
+     */
+    CLI_INIT_ERR_DUPLICATE_COMMAND,
 } cli_init_result_t;
 
 struct cli {

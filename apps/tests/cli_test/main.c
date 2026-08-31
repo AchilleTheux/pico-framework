@@ -9,9 +9,9 @@
 #include <stdio.h>
 
 #include "pico/stdlib.h"
-#include "pico/bootrom.h"
 
 #include "cli.h"
+#include "cli_builtins.h"
 #include "cli_stream.h"
 
 /* Overridable from the profiles under profiles/tests/cli_test. */
@@ -43,23 +43,6 @@ static char line_buffer[128];
 static cli_t cli;
 
 /* ------------------------------------------------------------------------ */
-
-static int cmd_ping(cli_t *c, void *user_data)
-{
-    (void)user_data;
-    cli_write(c, "pong\r\n");
-    return CLI_OK;
-}
-
-static int cmd_info(cli_t *c, void *user_data)
-{
-    (void)user_data;
-    cli_printf(c, "board   %s\r\n", PICO_BOARD);
-    cli_printf(c, "sdk     %s\r\n", PICO_SDK_VERSION_STRING);
-    cli_printf(c, "uptime  %llu ms\r\n", (unsigned long long)(time_us_64() / 1000));
-    cli_printf(c, "transport %s\r\n", CLI_TEST_USE_UART ? "uart" : "stdio");
-    return CLI_OK;
-}
 
 #ifdef PICO_DEFAULT_LED_PIN
 static int cmd_led(cli_t *c, void *user_data)
@@ -139,18 +122,14 @@ static int cmd_fail(cli_t *c, void *user_data)
     return CLI_ERR_FAILED;
 }
 
-static int cmd_bootsel(cli_t *c, void *user_data)
-{
-    (void)user_data;
-    cli_write(c, "rebooting into BOOTSEL\r\n");
-    sleep_ms(100);
-    reset_usb_boot(0, 0);
-    return CLI_OK;
-}
+/*
+ * Only the commands this test is actually about: argument parsing and the error
+ * paths. ping, version, uptime, reboot and bootsel come from the framework's
+ * built-in set, which is the point — an application should not be writing them.
+ */
+static cli_command_t commands[CLI_BUILTIN_COMMAND_COUNT + 8u];
 
-static const cli_command_t commands[] = {
-    { "ping",    "answer with pong",                    cmd_ping,    NULL },
-    { "info",    "board, SDK version and uptime",       cmd_info,    NULL },
+static const cli_command_t own_commands[] = {
 #ifdef PICO_DEFAULT_LED_PIN
     { "led",     "led on|off",                          cmd_led,     NULL },
 #endif
@@ -158,7 +137,6 @@ static const cli_command_t commands[] = {
     { "parse",   "parse <signed> <hex> <float>",        cmd_parse,   NULL },
     { "echo",    "echo the rest of the line",           cmd_echo,    NULL },
     { "fail",    "always returns an error",             cmd_fail,    NULL },
-    { "bootsel", "reboot into the USB bootloader",      cmd_bootsel, NULL },
 };
 
 /* ------------------------------------------------------------------------ */
@@ -191,9 +169,14 @@ int main(void)
     /* Give a USB console a moment to attach before the banner. */
     sleep_ms(2000);
 
+    size_t count = cli_builtin_commands(commands, count_of(commands));
+    for (unsigned i = 0; i < count_of(own_commands) && count < count_of(commands); i++) {
+        commands[count++] = own_commands[i];
+    }
+
     const cli_config_t config = {
         .commands = commands,
-        .command_count = count_of(commands),
+        .command_count = count,
         .stream = open_stream(),
         .line_buffer = line_buffer,
         .line_buffer_size = sizeof(line_buffer),

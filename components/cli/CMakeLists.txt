@@ -5,6 +5,7 @@
 
 add_library(pico_framework_cli STATIC
     cli.c
+    cli_builtins.c
     cli_stream_stdio.c
     cli_stream_uart.c
 )
@@ -15,9 +16,12 @@ target_include_directories(pico_framework_cli PUBLIC
     include
 )
 
-pico_framework_set_warnings(cli.c cli_stream_stdio.c cli_stream_uart.c)
+pico_framework_set_warnings(cli.c cli_builtins.c
+                            cli_stream_stdio.c cli_stream_uart.c)
 
 target_link_libraries(pico_framework_cli PUBLIC
     pico_stdlib
     hardware_uart
+    hardware_watchdog
+    pico_bootrom
 )

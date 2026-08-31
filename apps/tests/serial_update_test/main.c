@@ -19,6 +19,7 @@
 #include "pico/stdlib.h"
 
 #include "cli.h"
+#include "cli_builtins.h"
 #include "cli_stream.h"
 #include "firmware_service.h"
 
@@ -31,22 +32,20 @@ static firmware_service_t service;
 static cli_t cli;
 static char line_buffer[600];   /* a HEX record can be 521 characters */
 
-static cli_command_t commands[FIRMWARE_SERVICE_MAX_COMMANDS + 2u];
+static cli_command_t commands[FIRMWARE_SERVICE_MAX_COMMANDS +
+                              CLI_BUILTIN_COMMAND_COUNT + 1u];
 
-static int cmd_version(cli_t *c, void *user_data)
+/*
+ * The build stamp, which is how an update is seen to have taken effect. Named
+ * `build` rather than `version` so it sits alongside the built-in `version`
+ * rather than clashing with it — cli_init() refuses duplicate names.
+ */
+static int cmd_build(cli_t *c, void *user_data)
 {
     (void)user_data;
-    cli_printf(c, "build   %s\r\n", SERIAL_UPDATE_BUILD_STAMP);
-    cli_printf(c, "board   %s\r\n", PICO_BOARD);
+    cli_printf(c, "stamp   %s\r\n", SERIAL_UPDATE_BUILD_STAMP);
     cli_printf(c, "apply   %s\r\n",
                FIRMWARE_SERVICE_ENABLE_APPLY ? "enabled" : "not built");
-    return CLI_OK;
-}
-
-static int cmd_ping(cli_t *c, void *user_data)
-{
-    (void)user_data;
-    cli_write(c, "pong\r\n");
     return CLI_OK;
 }
 
@@ -62,10 +61,12 @@ int main(void)
         }
     }
 
-    /* The service's commands first, then the application's own. */
+    /* The update service, the framework's built-ins, then this application's
+       own — none of which has to reimplement ping or reboot. */
     size_t count = firmware_service_commands(&service, commands, count_of(commands));
-    commands[count++] = (cli_command_t){ "version", "build stamp", cmd_version, NULL };
-    commands[count++] = (cli_command_t){ "ping", "answer with pong", cmd_ping, NULL };
+    count += cli_builtin_commands(&commands[count], count_of(commands) - count);
+    commands[count++] = (cli_command_t){ "build", "build stamp of this firmware",
+                                         cmd_build, NULL };
 
     const cli_config_t config = {
         .commands = commands,

@@ -18,6 +18,7 @@
 #include "pico/stdlib.h"
 
 #include "cli.h"
+#include "cli_builtins.h"
 #include "cli_stream.h"
 #include "half_duplex_uart.h"
 
@@ -544,7 +545,9 @@ static int cmd_soak(cli_t *c, void *user_data)
     return CLI_OK;
 }
 
-static const cli_command_t commands[] = {
+static cli_command_t commands[CLI_BUILTIN_COMMAND_COUNT + 16u];
+
+static const cli_command_t own_commands[] = {
     { "scan",   "find every servo on the bus",        cmd_scan,        NULL },
     { "ping",   "ping <id>",                          cmd_ping,        NULL },
     { "read",   "read <id> <register>",               cmd_read,        NULL },
@@ -608,9 +611,15 @@ int main(void)
     }
 #endif
 
+    size_t command_count = cli_builtin_commands(commands, count_of(commands));
+    for (unsigned i = 0;
+         i < count_of(own_commands) && command_count < count_of(commands); i++) {
+        commands[command_count++] = own_commands[i];
+    }
+
     const cli_config_t cli_config = {
         .commands = commands,
-        .command_count = count_of(commands),
+        .command_count = command_count,
         .stream = cli_stream_stdio(),
         .line_buffer = line_buffer,
         .line_buffer_size = sizeof(line_buffer),

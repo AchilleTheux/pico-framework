@@ -651,6 +651,44 @@ TEST(init_rejects_a_command_without_a_name)
     CHECK_EQ_INT(cli_init(&cli, &config), CLI_INIT_ERR_INVALID_ARG);
 }
 
+TEST(init_rejects_two_commands_with_the_same_name)
+{
+    /* Lookup takes the first match, so the second would never run. Easy to do
+       by accident when adding commands alongside the built-in set. */
+    cli_t cli;
+    char line[16];
+    static const cli_command_t clashing[] = {
+        { "ping", NULL, handler_noop, NULL },
+        { "noop", NULL, handler_noop, NULL },
+        { "PING", NULL, handler_noop, NULL },   /* same name, different case */
+    };
+    const cli_config_t config = {
+        .commands = clashing,
+        .command_count = count_of_(clashing),
+        .line_buffer = line,
+        .line_buffer_size = sizeof(line),
+    };
+    CHECK_EQ_INT(cli_init(&cli, &config), CLI_INIT_ERR_DUPLICATE_COMMAND);
+}
+
+TEST(init_accepts_a_table_with_no_duplicates)
+{
+    cli_t cli;
+    char line[16];
+    static const cli_command_t fine[] = {
+        { "ping", NULL, handler_noop, NULL },
+        { "pong", NULL, handler_noop, NULL },
+        { "pin",  NULL, handler_noop, NULL },
+    };
+    const cli_config_t config = {
+        .commands = fine,
+        .command_count = count_of_(fine),
+        .line_buffer = line,
+        .line_buffer_size = sizeof(line),
+    };
+    CHECK_EQ_INT(cli_init(&cli, &config), CLI_INIT_OK);
+}
+
 TEST(init_accepts_an_empty_command_table)
 {
     cli_t cli;
@@ -846,5 +884,7 @@ TEST_MAIN(
 
     RUN(init_rejects_a_missing_line_buffer);
     RUN(init_rejects_a_command_without_a_name);
+    RUN(init_rejects_two_commands_with_the_same_name);
+    RUN(init_accepts_a_table_with_no_duplicates);
     RUN(init_accepts_an_empty_command_table);
 )
