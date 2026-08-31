@@ -37,11 +37,13 @@ TEST(the_regions_do_not_overlap_and_cover_the_chip)
 
         if (l.application.offset != 0 ||
             l.staging.offset != l.application.offset + l.application.size ||
-            l.data.offset != l.staging.offset + l.staging.size ||
+            l.manifest.offset != l.staging.offset + l.staging.size ||
+            l.data.offset != l.manifest.offset + l.manifest.size ||
             l.data.offset + l.data.size != sizes[i]) {
-            printf("    %u MiB: app %u+%u staging %u+%u data %u+%u\n",
+            printf("    %u MiB: app %u+%u staging %u+%u manifest %u+%u data %u+%u\n",
                    sizes[i] / MB, l.application.offset, l.application.size,
-                   l.staging.offset, l.staging.size, l.data.offset, l.data.size);
+                   l.staging.offset, l.staging.size,
+                   l.manifest.offset, l.manifest.size, l.data.offset, l.data.size);
             CHECK(false);
             return;
         }
@@ -68,7 +70,7 @@ TEST(an_odd_sector_over_goes_to_data_not_to_an_image)
 
     CHECK_EQ_U32(l.application.size, l.staging.size);
     CHECK_EQ_U32(l.data.offset + l.data.size, 2u * MB);
-    CHECK(l.data.size >= 33u * SECTOR);
+    CHECK(l.manifest.size + l.data.size >= 33u * SECTOR);
 }
 
 TEST(every_region_starts_on_a_sector_boundary)
@@ -81,6 +83,7 @@ TEST(every_region_starts_on_a_sector_boundary)
         const flash_layout_t l = layout_for(sizes[i], FLASH_LAYOUT_DATA_SECTORS);
         CHECK(flash_offset_is_sector_aligned(l.application.offset));
         CHECK(flash_offset_is_sector_aligned(l.staging.offset));
+        CHECK(flash_offset_is_sector_aligned(l.manifest.offset));
         CHECK(flash_offset_is_sector_aligned(l.data.offset));
         CHECK(flash_offset_is_sector_aligned(l.application.size));
         CHECK(flash_offset_is_sector_aligned(l.staging.size));
@@ -97,8 +100,10 @@ TEST(a_two_megabyte_chip_divides_as_expected)
     CHECK_EQ_U32(l.application.size, 240u * SECTOR);
     CHECK_EQ_U32(l.staging.offset, 240u * SECTOR);
     CHECK_EQ_U32(l.staging.size, 240u * SECTOR);
-    CHECK_EQ_U32(l.data.offset, 480u * SECTOR);
-    CHECK_EQ_U32(l.data.size, 32u * SECTOR);
+    CHECK_EQ_U32(l.manifest.offset, 480u * SECTOR);
+    CHECK_EQ_U32(l.manifest.size, SECTOR);
+    CHECK_EQ_U32(l.data.offset, 481u * SECTOR);
+    CHECK_EQ_U32(l.data.size, 31u * SECTOR);
 
     /* Nearly a megabyte for firmware; the applications built here are under
        60 KiB, so there is room to grow by a wide margin. */
@@ -108,6 +113,11 @@ TEST(a_two_megabyte_chip_divides_as_expected)
 TEST(a_chip_too_small_to_divide_is_rejected)
 {
     flash_layout_t layout;
+
+    /* The reserved tail must hold the manifest and leave something over. */
+    CHECK_EQ_INT(flash_layout_compute(2u * MB, 1u, &layout),
+                 FLASH_LAYOUT_ERR_TOO_SMALL);
+    CHECK_EQ_INT(flash_layout_compute(2u * MB, 2u, &layout), FLASH_LAYOUT_OK);
 
     /* No room for a data region plus one sector each way. */
     CHECK_EQ_INT(flash_layout_compute(32u * SECTOR, 32u, &layout),
@@ -272,7 +282,8 @@ TEST(sector_counts_and_absolute_offsets_are_consistent)
 
     CHECK_EQ_U32(flash_region_sector_count(&l.application), 240u);
     CHECK_EQ_U32(flash_region_sector_count(&l.staging), 240u);
-    CHECK_EQ_U32(flash_region_sector_count(&l.data), 32u);
+    CHECK_EQ_U32(flash_region_sector_count(&l.manifest), 1u);
+    CHECK_EQ_U32(flash_region_sector_count(&l.data), 31u);
 
     /* An offset inside staging maps to the right place in the chip. */
     CHECK_EQ_U32(flash_region_absolute(&l.staging, 0), 240u * SECTOR);

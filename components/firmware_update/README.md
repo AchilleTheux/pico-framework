@@ -35,34 +35,30 @@ is 28 bytes and is validated constantly, while the payload is tens of kilobytes
 and is streamed. A torn header can be told from a good one without reading the
 payload at all.
 
-## The boot decision
+## The manifest
 
-```c
-switch (firmware_image_decide_boot(&application, &staged)) {
-    case FIRMWARE_BOOT_RUN_APPLICATION: /* jump to it */
-    case FIRMWARE_BOOT_INSTALL_STAGED:  /* copy staging across, then run */
-    case FIRMWARE_BOOT_RECOVERY:        /* wait for an upload */
-}
-```
+The header is written to its own flash sector when a transfer has been
+verified, and read back at startup. That is what lets an image be uploaded, the
+board power-cycled, and the image installed afterwards without sending it
+again — which matters, because on a link slow enough to need this feature a
+resend is minutes.
 
-Pure by design: it takes two headers and returns what to do, so the rule is
-tested exhaustively over every combination of slot states without a flash chip.
-The bootloader reads the headers, calls this, and acts.
+Recovering it checks **both** halves: that the header is valid, and that
+re-checksumming the staged bytes still matches what it claims. Trusting the
+header alone would let a manifest survive an interrupted transfer that had
+already started erasing staging underneath it.
 
-Three properties are deliberate:
+`fwbegin` clears the manifest before touching anything else, so the two can
+never be left disagreeing. `fwstatus` says when a verified image came from
+before the last reboot rather than from this session.
 
-* **A staged image is installed whenever its `build_id` *differs*, not only
-  when it is greater.** Flashing a known-good older build back in the field has
-  to work without a cable.
-* **The decision clears itself.** Installing copies the header too, so
-  afterwards the build ids agree and the next boot runs the application rather
-  than installing again.
-* **Interrupting an install is safe.** Staging is untouched by the copy, so the
-  same decision is reached on the next boot and the copy simply restarts.
+The manifest has a sector to itself precisely so that rewriting it on every
+transfer cannot disturb config or logs, which sit after it in the layout.
 
-An invalid staged image never displaces a working application, and a valid
-staged image is installed even over a ruined one — which is the recovery path
-that matters.
+There was also a `firmware_image_decide_boot()` here, written for a two-slot
+bootloader that chose between images at startup. The design that shipped
+installs in place instead and never makes a decision at boot, so it has been
+removed rather than kept as something that looks live and is not.
 
 ## Status
 

@@ -15,7 +15,11 @@
  *     +------------------+
  *     |     staging      |   an image received but not yet installed
  *     +------------------+
- *     |      data        |   config and logs, kept clear of both images
+ *     |     manifest     |   one sector: what is staged, and whether it was
+ *     |                  |   verified. Survives a reboot, so an image can be
+ *     |                  |   uploaded and installed later.
+ *     +------------------+
+ *     |      data        |   config and logs, kept clear of everything above
  *     +------------------+ end of flash
  *
  * Application and staging are the same size, because installing is a copy from
@@ -57,9 +61,14 @@ typedef struct {
     uint32_t size;
 } flash_region_t;
 
+/* One sector is enough for the manifest and is the smallest thing that can be
+   erased independently, which is what it needs. */
+#define FLASH_LAYOUT_MANIFEST_SECTORS 1u
+
 typedef struct {
     flash_region_t application;
     flash_region_t staging;
+    flash_region_t manifest;
     flash_region_t data;
 } flash_layout_t;
 
@@ -73,7 +82,9 @@ typedef enum {
 
 /*
  * Divide a chip of `flash_size` bytes, reserving `data_sectors` at the end and
- * splitting what remains equally between the application and staging.
+ * splitting what remains equally between the application and staging. The
+ * first sector of the reserved tail becomes the manifest, so `data_sectors`
+ * must leave at least one more.
  *
  * Fails rather than producing a degenerate layout when the chip is too small
  * to hold a data region plus one sector each of application and staging.

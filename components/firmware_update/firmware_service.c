@@ -4,6 +4,7 @@
 
 #include "crc.h"
 
+#include "firmware_image.h"
 #include "firmware_service.h"
 
 #if FIRMWARE_SERVICE_ENABLE_APPLY
@@ -16,6 +17,91 @@
  * this address, not to where staging physically sits.
  */
 #define IMAGE_BASE_ADDRESS XIP_BASE
+
+/* ---------------------------------------------------------------------------
+ * The manifest
+ *
+ * A verified transfer records what it staged in its own sector, so the fact
+ * survives a reboot. Without it, uploading an image and then power-cycling the
+ * board before installing would mean sending the whole thing again — and on a
+ * link slow enough to need this feature, that is minutes.
+ *
+ * It lives in its own sector precisely so that rewriting it on every transfer
+ * cannot disturb config or logs, which sit after it.
+ * -------------------------------------------------------------------------*/
+
+static bool manifest_write(firmware_service_t *service, uint32_t size, uint32_t crc)
+{
+    if (flash_storage_erase(&service->layout->manifest, 0,
+                            service->layout->manifest.size) != FLASH_STORAGE_OK) {
+        return false;
+    }
+
+    /*
+     * The header is 28 bytes and flash programs 256 at a time, so it goes out
+     * in a page padded with the erased value — leaving the rest at 0xFF rather
+     * than zeroing it keeps the sector's remaining bytes writable.
+     */
+    uint8_t page[FLASH_LAYOUT_PAGE_SIZE];
+    memset(page, 0xFF, sizeof(page));
+
+    firmware_image_header_t header;
+    if (firmware_image_header_init(&header, size, crc, IMAGE_BASE_ADDRESS, crc)
+            != FIRMWARE_IMAGE_OK) {
+        return false;
+    }
+    memcpy(page, &header, sizeof(header));
+
+    return flash_storage_program_verified(&service->layout->manifest, 0,
+                                          page, sizeof(page)) == FLASH_STORAGE_OK;
+}
+
+static bool manifest_invalidate(firmware_service_t *service)
+{
+    /* Erased, so nothing that follows can mistake a stale manifest for a
+       description of what is now in staging. */
+    return flash_storage_erase(&service->layout->manifest, 0,
+                               service->layout->manifest.size) == FLASH_STORAGE_OK;
+}
+
+/*
+ * Read the manifest and check it still describes what staging holds.
+ *
+ * Both halves matter: a valid header proves a transfer once completed, and
+ * re-checksumming the staged bytes proves nothing has happened to them since.
+ * Trusting the header alone would let a manifest survive an interrupted
+ * transfer that had already begun erasing staging underneath it.
+ */
+static bool manifest_matches_staging(firmware_service_t *service,
+                                     firmware_image_header_t *out)
+{
+    const uint8_t *stored = flash_storage_data(&service->layout->manifest, 0,
+                                               sizeof(firmware_image_header_t));
+    if (stored == NULL) {
+        return false;
+    }
+
+    firmware_image_header_t header;
+    memcpy(&header, stored, sizeof(header));
+
+    if (firmware_image_header_validate(&header) != FIRMWARE_IMAGE_OK) {
+        return false;
+    }
+    if (header.payload_size > service->layout->staging.size) {
+        return false;
+    }
+
+    const uint32_t actual =
+        flash_storage_crc32(&service->layout->staging, 0, header.payload_size);
+    if (firmware_image_verify_payload(&header, actual) != FIRMWARE_IMAGE_OK) {
+        return false;
+    }
+
+    if (out != NULL) {
+        *out = header;
+    }
+    return true;
+}
 
 /* ---------------------------------------------------------------------------
  * Flash-backed page writer
@@ -46,6 +132,23 @@ bool firmware_service_init(firmware_service_t *service)
     }
 
     service->initialised = true;
+
+    /*
+     * Pick up an image staged before the last reboot. The receive state itself
+     * is gone with the RAM, so image_size is taken from the manifest and the
+     * transfer is presented as already complete and verified — which is what it
+     * is, having been checksummed against the sender before being recorded and
+     * again just now.
+     */
+    firmware_image_header_t staged;
+    if (manifest_matches_staging(service, &staged)) {
+        service->receive.image_size = staged.payload_size;
+        service->receive.complete = true;
+        service->verified = true;
+        service->verified_crc32 = staged.payload_crc32;
+        service->staged_from_manifest = true;
+    }
+
     return true;
 }
 
@@ -113,7 +216,16 @@ static int cmd_begin(cli_t *cli, void *user_data)
     firmware_service_t *service = (firmware_service_t *)user_data;
 
     service->verified = false;
+    service->staged_from_manifest = false;
     service->records_since_progress = 0;
+
+    /* Cleared first: from here on staging no longer holds what the manifest
+       says it does, and an interrupted transfer must not leave the two
+       disagreeing. */
+    if (!manifest_invalidate(service)) {
+        cli_write(cli, "could not clear the manifest\r\n");
+        return CLI_ERR_FAILED;
+    }
 
     /*
      * An optional size lets the sender say how much to clear. It matters: the
@@ -178,7 +290,8 @@ static int cmd_status(cli_t *cli, void *user_data)
                (unsigned long)firmware_receive_image_size(&service->receive));
     cli_printf(cli, "pages      %lu\r\n", (unsigned long)service->receive.pages_written);
     cli_printf(cli, "capacity   %lu\r\n", (unsigned long)service->layout->staging.size);
-    cli_printf(cli, "verified   %s\r\n", service->verified ? "yes" : "no");
+    cli_printf(cli, "verified   %s%s\r\n", service->verified ? "yes" : "no",
+               service->staged_from_manifest ? " (staged before the last reboot)" : "");
 
     if (service->receive.error != FIRMWARE_RECEIVE_OK) {
         cli_printf(cli, "error      %s\r\n",
@@ -223,7 +336,16 @@ static int cmd_verify(cli_t *cli, void *user_data)
 
     service->verified = true;
     service->verified_crc32 = actual;
-    cli_write(cli, "verified\r\n");
+
+    /* Recorded so the image can still be installed after a power cycle. A
+       failure here is not fatal to this session — the image is staged and
+       verified either way — so it is reported and no more. */
+    if (manifest_write(service, size, actual)) {
+        cli_write(cli, "verified and recorded\r\n");
+    } else {
+        cli_write(cli, "verified, but the manifest could not be written; "
+                       "installing will need a re-verify after a reboot\r\n");
+    }
     return CLI_OK;
 }
 

@@ -1,11 +1,14 @@
 /*
- * firmware_image - the on-flash description of a firmware image, and the rule
- * for deciding what to boot.
+ * firmware_image - the on-flash description of a firmware image.
+ *
+ * Written to the manifest sector when a transfer has been verified, and read
+ * back at startup, so an image can be uploaded, the board power-cycled, and
+ * the image installed afterwards without sending it again.
  *
  * An update over a serial link can be interrupted at any point: the cable is
  * pulled, the battery sags, the sender crashes halfway. Everything here exists
  * so that a half-written image is recognisably half-written rather than
- * something the board tries to run.
+ * something the board tries to install.
  *
  * The layout is deliberately plain — fixed-width fields, no padding, one CRC
  * over the header and another over the payload — because it is written by one
@@ -55,11 +58,9 @@ typedef struct {
     uint32_t load_address;
 
     /*
-     * Identifies this build. The bootloader installs a staged image whenever
-     * this differs from the running one — not only when it is greater, so that
-     * flashing a known-good older build back is possible in the field. It is
-     * self-clearing: once installed the two agree, so the install does not
-     * repeat.
+     * Identifies the staged image. The updater sets it to the payload
+     * checksum, which is as good an identity as anything available and needs
+     * nothing from the sender.
      */
     uint32_t build_id;
 
@@ -114,36 +115,6 @@ firmware_image_result_t firmware_image_verify_payload(const firmware_image_heade
 uint32_t firmware_image_header_crc(const firmware_image_header_t *header);
 
 const char *firmware_image_result_name(firmware_image_result_t result);
-
-/* ---------------------------------------------------------------------------
- * Boot decision
- *
- * Pure: it takes the two headers and returns what to do, so the rule can be
- * tested exhaustively without a flash chip. The bootloader reads the headers,
- * calls this, and acts.
- * -------------------------------------------------------------------------*/
-
-typedef enum {
-    /* The application slot holds a valid, current image. Jump to it. */
-    FIRMWARE_BOOT_RUN_APPLICATION,
-
-    /* Staging holds a valid image that differs from the application. Copy it
-       across, then run it. Safe to interrupt: staging is untouched, so the
-       same decision is reached again on the next boot. */
-    FIRMWARE_BOOT_INSTALL_STAGED,
-
-    /* Nothing bootable. Wait for an upload rather than jumping into rubbish. */
-    FIRMWARE_BOOT_RECOVERY,
-} firmware_boot_action_t;
-
-/*
- * Either header may be NULL, or garbage read from erased flash; both are
- * treated as "no image there".
- */
-firmware_boot_action_t firmware_image_decide_boot(const firmware_image_header_t *application,
-                                                 const firmware_image_header_t *staged);
-
-const char *firmware_boot_action_name(firmware_boot_action_t action);
 
 #ifdef __cplusplus
 }

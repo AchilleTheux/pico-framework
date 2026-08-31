@@ -88,30 +88,6 @@ firmware_image_result_t firmware_image_verify_payload(const firmware_image_heade
         : FIRMWARE_IMAGE_ERR_BAD_PAYLOAD_CRC;
 }
 
-firmware_boot_action_t firmware_image_decide_boot(const firmware_image_header_t *application,
-                                                 const firmware_image_header_t *staged)
-{
-    const bool application_ok = firmware_image_header_is_valid(application);
-    const bool staged_ok = firmware_image_header_is_valid(staged);
-
-    /*
-     * A staged image is installed whenever it differs from what is running,
-     * which covers both an upgrade and a deliberate rollback. The comparison
-     * is self-clearing: installing copies the header too, so the build ids
-     * then match and the next boot runs the application instead of installing
-     * again.
-     */
-    if (staged_ok && (!application_ok || staged->build_id != application->build_id)) {
-        return FIRMWARE_BOOT_INSTALL_STAGED;
-    }
-
-    if (application_ok) {
-        return FIRMWARE_BOOT_RUN_APPLICATION;
-    }
-
-    return FIRMWARE_BOOT_RECOVERY;
-}
-
 const char *firmware_image_result_name(firmware_image_result_t result)
 {
     switch (result) {
@@ -123,15 +99,5 @@ const char *firmware_image_result_name(firmware_image_result_t result)
         case FIRMWARE_IMAGE_ERR_BAD_HEADER_CRC:  return "damaged header";
         case FIRMWARE_IMAGE_ERR_BAD_PAYLOAD_CRC: return "damaged payload";
         default:                                 return "unknown";
-    }
-}
-
-const char *firmware_boot_action_name(firmware_boot_action_t action)
-{
-    switch (action) {
-        case FIRMWARE_BOOT_RUN_APPLICATION: return "run application";
-        case FIRMWARE_BOOT_INSTALL_STAGED:  return "install staged image";
-        case FIRMWARE_BOOT_RECOVERY:        return "recovery";
-        default:                            return "unknown";
     }
 }

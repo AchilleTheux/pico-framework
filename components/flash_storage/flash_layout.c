@@ -20,9 +20,10 @@ flash_layout_result_t flash_layout_compute(uint32_t flash_size, uint32_t data_se
 
     const uint32_t total_sectors = flash_size / FLASH_LAYOUT_SECTOR_SIZE;
 
-    /* One sector each for application and staging is the smallest layout that
-       still means anything. */
-    if (total_sectors < data_sectors + 2u) {
+    /* One sector each for application and staging, plus the manifest, is the
+       smallest layout that still means anything. */
+    if (data_sectors < FLASH_LAYOUT_MANIFEST_SECTORS + 1u ||
+        total_sectors < data_sectors + 2u) {
         return FLASH_LAYOUT_ERR_TOO_SMALL;
     }
 
@@ -42,8 +43,13 @@ flash_layout_result_t flash_layout_compute(uint32_t flash_size, uint32_t data_se
     layout->staging.offset = image_size;
     layout->staging.size = image_size;
 
-    layout->data.offset = 2u * image_size;
-    layout->data.size = flash_size - 2u * image_size;
+    /* The manifest takes the front of the reserved tail, so that erasing it —
+       which happens on every transfer — cannot disturb config or logs. */
+    layout->manifest.offset = 2u * image_size;
+    layout->manifest.size = FLASH_LAYOUT_MANIFEST_SECTORS * FLASH_LAYOUT_SECTOR_SIZE;
+
+    layout->data.offset = layout->manifest.offset + layout->manifest.size;
+    layout->data.size = flash_size - layout->data.offset;
 
     return FLASH_LAYOUT_OK;
 }

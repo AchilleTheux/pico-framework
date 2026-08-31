@@ -65,9 +65,14 @@ typedef struct {
     bool receiving;
 
     /* Result of the last verification, so apply can refuse an image that was
-       never checked. */
+       never checked. Recovered from the manifest at startup, so an image
+       uploaded before a reboot can still be installed. */
     bool verified;
     uint32_t verified_crc32;
+
+    /* True when `verified` came from the manifest rather than from a transfer
+       in this session; reported by fwstatus so the distinction is visible. */
+    bool staged_from_manifest;
 
     uint32_t records_since_progress;
     cli_t *cli;   /* for progress output during a transfer */
