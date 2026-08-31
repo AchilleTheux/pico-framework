@@ -250,6 +250,19 @@ static bool output_contains(const char *needle)
     return strstr(g_stream.output, needle) != NULL;
 }
 
+static size_t output_count(const char *needle)
+{
+    size_t count = 0;
+    const size_t length = strlen(needle);
+    const char *at = g_stream.output;
+
+    while (length > 0 && (at = strstr(at, needle)) != NULL) {
+        count++;
+        at += length;
+    }
+    return count;
+}
+
 /* ---------------------------------------------------------------------------
  * Dispatch
  * -------------------------------------------------------------------------*/
@@ -303,6 +316,7 @@ TEST(crlf_does_not_produce_a_spurious_second_command)
     feed("noop\r\n");
     CHECK_EQ_INT(g_seen.calls, 1);
     CHECK(!output_contains("unknown"));
+    CHECK_EQ_U32(output_count("> "), 1u);
 }
 
 TEST(a_nonzero_return_is_reported_as_an_error)
@@ -817,6 +831,16 @@ TEST(a_hex_transfer_and_commands_share_the_line)
     CHECK(!output_contains("unknown command"));
 }
 
+TEST(a_consumed_crlf_record_does_not_print_a_prompt)
+{
+    setup_with_filter(false, false, filter_hex_records, NULL);
+
+    feed(":00000001FF\r\n");
+
+    CHECK_EQ_INT(g_filter.calls, 1);
+    CHECK_EQ_U32(output_count("> "), 0u);
+}
+
 TEST(a_filter_can_write_through_the_stream)
 {
     setup_with_filter(false, false, filter_hex_records, NULL);
@@ -880,6 +904,7 @@ TEST_MAIN(
     RUN(the_filter_is_not_called_for_blank_lines);
     RUN(the_filter_runs_ahead_of_the_built_in_help);
     RUN(a_hex_transfer_and_commands_share_the_line);
+    RUN(a_consumed_crlf_record_does_not_print_a_prompt);
     RUN(a_filter_can_write_through_the_stream);
 
     RUN(init_rejects_a_missing_line_buffer);

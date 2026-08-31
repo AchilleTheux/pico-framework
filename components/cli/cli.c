@@ -334,7 +334,7 @@ static const cli_command_t *find_command(const cli_t *cli, const char *name)
     return NULL;
 }
 
-static void execute_line(cli_t *cli)
+static bool execute_line(cli_t *cli)
 {
     cli->line[cli->line_len] = '\0';
     cli->parse_pos = 0;
@@ -347,7 +347,7 @@ static void execute_line(cli_t *cli)
      * never reports it as an unknown command.
      */
     if (cli_args_exhausted(cli)) {
-        return;
+        return false;
     }
     cli->parse_pos = 0;
 
@@ -360,35 +360,36 @@ static void execute_line(cli_t *cli)
      */
     if (cli->line_filter != NULL &&
         cli->line_filter(cli, cli->line, cli->line_filter_user_data)) {
-        return;
+        return true;
     }
 
     const char *name = cli_next_token(cli);
     if (name == NULL) {
-        return; /* unreachable: the blank case is handled above */
+        return false; /* unreachable: the blank case is handled above */
     }
 
     if (cli->enable_help && (equals_ignore_case(name, "help") ||
                              equals_ignore_case(name, "?"))) {
         print_help(cli);
-        return;
+        return false;
     }
 
     const cli_command_t *command = find_command(cli, name);
     if (command == NULL) {
         cli_printf(cli, "unknown command: %s\r\n", name);
-        return;
+        return false;
     }
 
     if (command->handler == NULL) {
         cli_printf(cli, "error %d\r\n", CLI_ERR_STATE);
-        return;
+        return false;
     }
 
     const int status = command->handler(cli, command->user_data);
     if (status != 0) {
         cli_printf(cli, "error %d\r\n", status);
     }
+    return false;
 }
 
 /* ---------------------------------------------------------------------------
@@ -426,15 +427,18 @@ static void handle_end_of_line(cli_t *cli)
         cli_write(cli, "\r\n");
     }
 
+    bool filtered = false;
     if (cli->overflow) {
         /* The line was truncated, so running it would run the wrong command. */
         cli_write(cli, "line too long\r\n");
     } else if (cli->line_len > 0) {
-        execute_line(cli);
+        filtered = execute_line(cli);
     }
 
     cli_reset_line(cli);
-    cli_write_prompt(cli);
+    if (!filtered) {
+        cli_write_prompt(cli);
+    }
 }
 
 void cli_feed_char(cli_t *cli, char c)
@@ -443,15 +447,20 @@ void cli_feed_char(cli_t *cli, char c)
         return;
     }
 
+    if (c == '\n' && cli->last_was_cr) {
+        /* CRLF is one line ending. Without this, the LF prints a second prompt
+           and a firmware upload produces one prompt for every HEX record. */
+        cli->last_was_cr = false;
+        return;
+    }
+
     if (c == '\r' || c == '\n') {
-        /*
-         * A terminal sending CRLF would otherwise dispatch the line and then
-         * see a stray empty one; the blank-line check in execute_line() makes
-         * that harmless.
-         */
+        cli->last_was_cr = (c == '\r');
         handle_end_of_line(cli);
         return;
     }
+
+    cli->last_was_cr = false;
 
     if (c == '\b' || c == 0x7F) {
         handle_backspace(cli);

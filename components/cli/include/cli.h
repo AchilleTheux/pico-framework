@@ -149,6 +149,7 @@ struct cli {
     size_t line_len;
     size_t parse_pos;
     bool overflow;
+    bool last_was_cr;
     const char *prompt;
     bool echo;
     bool enable_help;
