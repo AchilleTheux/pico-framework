@@ -20,6 +20,7 @@ set(PICO_FRAMEWORK_COMPONENTS
     hex_parser
     i2c_device
     vl53l0x
+    wifi
     persistent_config
     logging
     flash_storage

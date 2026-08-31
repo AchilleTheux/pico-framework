@@ -32,6 +32,7 @@ first two components.
 | [`vl53l0x`](components/vl53l0x/) | ST VL53L0X time-of-flight distance sensor |
 | [`persistent_config`](components/persistent_config/) | key/value settings that survive power-off |
 | [`logging`](components/logging/) | levelled logging, compile-time filtered, several sinks |
+| [`wifi`](components/wifi/) | CYW43 station-mode connection management, with reconnect |
 
 Updating a board over a serial link, with no USB involved, is built from these:
 `hex_parser` decodes the image, `firmware_update` receives and verifies it,
@@ -49,8 +50,7 @@ The last four are the foundations of updating firmware over a serial link,
 without needing the BOOTSEL button. Their pure logic is complete and tested;
 the flash-backed half and the bootloader itself are not written yet.
 
-Still to come: the flash and bootloader half of the update path, PWM, I2C, and
-WiFi.
+Still to come: Bluetooth, TCP and UDP over the WiFi link, and PWM.
 
 ## Getting started
 

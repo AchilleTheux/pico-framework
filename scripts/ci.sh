@@ -49,6 +49,10 @@ MATRIX=(
     "bras_attrape_caisse:minimal:default"
     "bras_attrape_caisse:tests/firmware_update_test:default"
     "pico2:tests/firmware_update_test:write_flash"
+    "pico2_w:tests/wifi_test:default"
+    "pico_w:tests/wifi_test:default"
+    # A radio component on a board with no radio: must still build.
+    "pico2:tests/wifi_test:default"
     "pico:tests/config_test:default"
     "pico2:tests/config_test:default"
     "pico:tests/i2c_test:default"

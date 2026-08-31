@@ -217,3 +217,12 @@ host_test(vl53l0x_timing_test
 target_include_directories(vl53l0x_timing_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/vl53l0x/include"
 )
+
+host_test(wifi_policy_test
+    SOURCES
+        tests/components/wifi_policy_test.c
+        components/wifi/wifi_policy.c
+)
+target_include_directories(wifi_policy_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/wifi/include"
+)
