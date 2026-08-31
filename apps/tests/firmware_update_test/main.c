@@ -18,8 +18,16 @@
 
 #include "crc.h"
 #include "firmware_image.h"
+#include "flash_storage.h"
 #include "hex_parser.h"
 #include "ring_buffer.h"
+
+/* Set by the 'write_flash' profile. Off by default: the write test erases the
+   staging region, which is destructive even though it never touches the
+   running firmware. */
+#ifndef FIRMWARE_UPDATE_TEST_WRITE_FLASH
+#define FIRMWARE_UPDATE_TEST_WRITE_FLASH 0
+#endif
 
 static unsigned checks_run;
 static unsigned checks_failed;
@@ -264,6 +272,111 @@ static void test_ring_buffer(void)
            got == sizeof(block) && memcmp(block, received, sizeof(block)) == 0, "");
 }
 
+/* ------------------------------------------------------------------------
+ * Flash
+ *
+ * The default checks are all read-only or expected to be *refused*, so they
+ * verify the guards without writing anything. The erase and program test is
+ * behind a profile flag because it destroys the staging region.
+ * ---------------------------------------------------------------------- */
+
+static void test_flash_layout(void)
+{
+    char detail[96];
+    const flash_layout_t *layout = flash_layout_get();
+
+    snprintf(detail, sizeof(detail), "app %uK staging %uK data %uK",
+             (unsigned)(layout->application.size / 1024u),
+             (unsigned)(layout->staging.size / 1024u),
+             (unsigned)(layout->data.size / 1024u));
+    report("flash divides up", layout->application.size > 0, detail);
+
+    report("application and staging are equal",
+           layout->application.size == layout->staging.size, "");
+
+    report("regions are contiguous and cover the chip",
+           layout->staging.offset == layout->application.size &&
+           layout->data.offset == layout->staging.offset + layout->staging.size,
+           "");
+}
+
+static void test_flash_guards(void)
+{
+    char detail[96];
+    const flash_layout_t *layout = flash_layout_get();
+
+    /*
+     * The guard that matters. This firmware is executing from the application
+     * region, so the component must know that and refuse to erase it. Nothing
+     * is written by any of these — a refusal is the pass condition.
+     */
+    report("knows it runs from the application region",
+           flash_storage_holds_running_code(&layout->application),
+           "detected by the address of its own code");
+
+    report("knows it does not run from staging",
+           !flash_storage_holds_running_code(&layout->staging), "");
+
+    const flash_storage_result_t self =
+        flash_storage_erase(&layout->application, 0, FLASH_LAYOUT_SECTOR_SIZE);
+    report("refuses to erase the running region",
+           self == FLASH_STORAGE_ERR_RUNNING_FROM_REGION,
+           flash_storage_result_name(self));
+
+    const flash_storage_result_t misaligned =
+        flash_storage_erase(&layout->staging, 1, FLASH_LAYOUT_SECTOR_SIZE);
+    report("refuses a misaligned erase", misaligned == FLASH_STORAGE_ERR_UNALIGNED,
+           flash_storage_result_name(misaligned));
+
+    const flash_storage_result_t past_end =
+        flash_storage_erase(&layout->staging, layout->staging.size,
+                            FLASH_LAYOUT_SECTOR_SIZE);
+    report("refuses an erase past the region",
+           past_end == FLASH_STORAGE_ERR_OUT_OF_RANGE,
+           flash_storage_result_name(past_end));
+
+    /* Reading is just memory, so this is safe and proves the mapping. */
+    const uint8_t *staged = flash_storage_data(&layout->staging, 0, 16);
+    snprintf(detail, sizeof(detail), "staging maps to %p", (const void *)staged);
+    report("staging is readable", staged != NULL, detail);
+}
+
+#if FIRMWARE_UPDATE_TEST_WRITE_FLASH
+static void test_flash_write(void)
+{
+    char detail[96];
+    const flash_layout_t *layout = flash_layout_get();
+
+    /* One sector at the very start of staging. Nothing else uses it yet. */
+    const flash_storage_result_t erased =
+        flash_storage_erase(&layout->staging, 0, FLASH_LAYOUT_SECTOR_SIZE);
+    report("erases a staging sector", erased == FLASH_STORAGE_OK,
+           flash_storage_result_name(erased));
+
+    report("erased flash reads as 0xFF",
+           flash_storage_is_erased(&layout->staging, 0, FLASH_LAYOUT_SECTOR_SIZE), "");
+
+    static uint8_t page[FLASH_LAYOUT_PAGE_SIZE];
+    for (size_t i = 0; i < sizeof(page); i++) {
+        page[i] = (uint8_t)(i ^ 0x3Cu);
+    }
+
+    const flash_storage_result_t written =
+        flash_storage_program_verified(&layout->staging, 0, page, sizeof(page));
+    report("programs and verifies a page", written == FLASH_STORAGE_OK,
+           flash_storage_result_name(written));
+
+    const uint32_t stored =
+        flash_storage_crc32(&layout->staging, 0, sizeof(page));
+    snprintf(detail, sizeof(detail), "0x%08lX", (unsigned long)stored);
+    report("crc over flash matches crc over RAM",
+           stored == crc32(page, sizeof(page)), detail);
+
+    report("the written page is no longer erased",
+           !flash_storage_is_erased(&layout->staging, 0, sizeof(page)), "");
+}
+#endif
+
 int main(void)
 {
     stdio_init_all();
@@ -283,6 +396,11 @@ int main(void)
         test_image_header();
         test_boot_decision();
         test_ring_buffer();
+        test_flash_layout();
+        test_flash_guards();
+#if FIRMWARE_UPDATE_TEST_WRITE_FLASH
+        test_flash_write();
+#endif
 
         printf("  %u checks, %u failed\n", checks_run, checks_failed);
         sleep_ms(5000);

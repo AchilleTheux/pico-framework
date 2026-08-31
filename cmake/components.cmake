@@ -18,6 +18,7 @@ set(PICO_FRAMEWORK_COMPONENTS
     crc
     ring_buffer
     hex_parser
+    flash_storage
     firmware_update
     ws2812
     cli

@@ -44,6 +44,7 @@ MATRIX=(
     # A custom board header from boards/, to keep the board mechanism covered.
     "bras_attrape_caisse:minimal:default"
     "bras_attrape_caisse:tests/firmware_update_test:default"
+    "pico2:tests/firmware_update_test:write_flash"
 )
 
 QUICK_MATRIX=(

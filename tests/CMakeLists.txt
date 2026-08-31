@@ -161,3 +161,12 @@ target_include_directories(firmware_image_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/firmware_update/include"
     "${PICO_FRAMEWORK_ROOT}/components/crc/include"
 )
+
+host_test(flash_layout_test
+    SOURCES
+        tests/components/flash_layout_test.c
+        components/flash_storage/flash_layout.c
+)
+target_include_directories(flash_layout_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/flash_storage/include"
+)

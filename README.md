@@ -27,6 +27,7 @@ first two components.
 | [`ring_buffer`](components/ring_buffer/) | byte FIFO over caller-owned storage |
 | [`hex_parser`](components/hex_parser/) | Intel HEX record decoding |
 | [`firmware_update`](components/firmware_update/) | image header and the boot decision (pure half) |
+| [`flash_storage`](components/flash_storage/) | bounded erase/program/read, and the flash layout |
 
 Each has host tests and a hardware test application. `ws2812` and `cli` are
 ported from working firmware and exercise their hardware paths; the four servo
@@ -167,6 +168,7 @@ components/crc/         CRC-32 and CRC-16
 components/ring_buffer/ byte FIFO
 components/hex_parser/  Intel HEX decoding
 components/firmware_update/  firmware image format and boot decision
+components/flash_storage/    bounded flash access and the chip layout
 apps/minimal/           the smallest complete application
 apps/tests/             one hardware test application per component
 boards/                 custom Pico SDK board headers

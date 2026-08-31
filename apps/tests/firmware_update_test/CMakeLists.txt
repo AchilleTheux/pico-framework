@@ -8,8 +8,16 @@ add_executable(app_firmware_update_test
     main.c
 )
 
+option(FIRMWARE_UPDATE_TEST_WRITE_FLASH
+       "Also erase and program a staging sector (destructive)" OFF)
+
+target_compile_definitions(app_firmware_update_test PRIVATE
+    FIRMWARE_UPDATE_TEST_WRITE_FLASH=$<BOOL:${FIRMWARE_UPDATE_TEST_WRITE_FLASH}>
+)
+
 target_link_libraries(app_firmware_update_test PRIVATE
     pico_stdlib
+    pico_framework::flash_storage
     pico_framework::crc
     pico_framework::ring_buffer
     pico_framework::hex_parser
