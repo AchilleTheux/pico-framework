@@ -29,6 +29,7 @@ first two components.
 | [`firmware_update`](components/firmware_update/) | image header and the boot decision (pure half) |
 | [`flash_storage`](components/flash_storage/) | bounded erase/program/read, and the flash layout |
 | [`i2c_device`](components/i2c_device/) | register access over I2C, with explicit byte order |
+| [`vl53l0x`](components/vl53l0x/) | ST VL53L0X time-of-flight distance sensor |
 | [`persistent_config`](components/persistent_config/) | key/value settings that survive power-off |
 | [`logging`](components/logging/) | levelled logging, compile-time filtered, several sinks |
 

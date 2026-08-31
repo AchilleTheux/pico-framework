@@ -19,6 +19,7 @@ set(PICO_FRAMEWORK_COMPONENTS
     ring_buffer
     hex_parser
     i2c_device
+    vl53l0x
     persistent_config
     logging
     flash_storage

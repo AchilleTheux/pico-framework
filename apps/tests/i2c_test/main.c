@@ -16,6 +16,7 @@
 #include "cli_builtins.h"
 #include "cli_stream.h"
 #include "i2c_device.h"
+#include "vl53l0x.h"
 
 /* Overridable from the profiles under profiles/tests/i2c_test. */
 #ifndef I2C_TEST_INSTANCE
@@ -41,7 +42,7 @@
 static i2c_inst_t *bus;
 static char line_buffer[128];
 static cli_t cli;
-static cli_command_t commands[CLI_BUILTIN_COMMAND_COUNT + 8u];
+static cli_command_t commands[CLI_BUILTIN_COMMAND_COUNT + 16u];
 
 /* The address most recently selected, so reads and writes need not repeat it. */
 static uint8_t selected_address;
@@ -264,6 +265,195 @@ static int cmd_info(cli_t *c, void *user_data)
     return CLI_OK;
 }
 
+/* ------------------------------------------------------------------------
+ * VL53L0X
+ *
+ * On the same bench because a time-of-flight sensor is just an I2C device, and
+ * finding it with `scan` then bringing it up with `tof` in the same session is
+ * how the wiring actually gets checked.
+ * ---------------------------------------------------------------------- */
+
+static vl53l0x_t tof;
+static bool tof_ready;
+
+static int cmd_tof(cli_t *c, void *user_data)
+{
+    (void)user_data;
+
+    uint32_t address = VL53L0X_DEFAULT_ADDRESS;
+    if (!cli_args_exhausted(c) && !cli_next_hex32(c, &address)) {
+        cli_write(c, "usage: tof [address]\r\n");
+        return CLI_ERR_ARG;
+    }
+
+    cli_printf(c, "bringing up a VL53L0X at 0x%02X...\r\n", (unsigned)address);
+
+    const vl53l0x_result_t result = vl53l0x_init(&tof, bus, (uint8_t)address);
+    if (result != VL53L0X_OK) {
+        cli_printf(c, "failed: %s\r\n", vl53l0x_result_name(result));
+        tof_ready = false;
+        return CLI_ERR_FAILED;
+    }
+
+    tof_ready = true;
+    cli_printf(c, "ready, timing budget %lu us\r\n",
+               (unsigned long)vl53l0x_get_timing_budget(&tof));
+    return CLI_OK;
+}
+
+static int cmd_tof_profile(cli_t *c, void *user_data)
+{
+    (void)user_data;
+
+    if (!tof_ready) {
+        cli_write(c, "run tof first\r\n");
+        return CLI_ERR_STATE;
+    }
+
+    const char *name = cli_next_token(c);
+    if (name == NULL) {
+        cli_write(c, "usage: tofprofile default|fast|accurate|long\r\n");
+        return CLI_ERR_ARG;
+    }
+
+    vl53l0x_profile_t profile;
+    if (name[0] == 'd') {
+        profile = VL53L0X_PROFILE_DEFAULT;
+    } else if (name[0] == 'f') {
+        profile = VL53L0X_PROFILE_FAST;
+    } else if (name[0] == 'a') {
+        profile = VL53L0X_PROFILE_ACCURATE;
+    } else if (name[0] == 'l') {
+        profile = VL53L0X_PROFILE_LONG_RANGE;
+    } else {
+        cli_write(c, "usage: tofprofile default|fast|accurate|long\r\n");
+        return CLI_ERR_ARG;
+    }
+
+    const vl53l0x_result_t result = vl53l0x_apply_profile(&tof, profile);
+    if (result != VL53L0X_OK) {
+        cli_printf(c, "failed: %s\r\n", vl53l0x_result_name(result));
+        return CLI_ERR_FAILED;
+    }
+
+    cli_printf(c, "applied, timing budget now %lu us\r\n",
+               (unsigned long)vl53l0x_get_timing_budget(&tof));
+    return CLI_OK;
+}
+
+static int cmd_tof_read(cli_t *c, void *user_data)
+{
+    (void)user_data;
+
+    if (!tof_ready) {
+        cli_write(c, "run tof first\r\n");
+        return CLI_ERR_STATE;
+    }
+
+    uint32_t count = 1;
+    if (!cli_args_exhausted(c) && (!cli_next_u32(c, &count) || count == 0 || count > 200)) {
+        cli_write(c, "usage: tofread [count 1-200]\r\n");
+        return CLI_ERR_ARG;
+    }
+
+    unsigned good = 0;
+    unsigned out_of_range = 0;
+    unsigned failed = 0;
+    uint32_t sum = 0;
+    uint16_t smallest = 0xFFFF;
+    uint16_t largest = 0;
+
+    for (uint32_t i = 0; i < count; i++) {
+        uint16_t millimetres = 0;
+        const vl53l0x_result_t result = vl53l0x_read_single(&tof, &millimetres);
+
+        if (result == VL53L0X_OK) {
+            good++;
+            sum += millimetres;
+            if (millimetres < smallest) smallest = millimetres;
+            if (millimetres > largest) largest = millimetres;
+            if (count == 1) {
+                cli_printf(c, "%u mm\r\n", millimetres);
+            }
+        } else if (result == VL53L0X_ERR_OUT_OF_RANGE) {
+            out_of_range++;
+            if (count == 1) {
+                cli_write(c, "nothing in range\r\n");
+            }
+        } else {
+            failed++;
+            if (count == 1) {
+                uint8_t status = 0;
+                vl53l0x_last_range_status(&tof, &status);
+                cli_printf(c, "%s (%s)\r\n", vl53l0x_result_name(result),
+                           vl53l0x_range_status_name(status));
+            }
+        }
+    }
+
+    if (count > 1) {
+        cli_printf(c, "%lu reads: %u good, %u out of range, %u failed\r\n",
+                   (unsigned long)count, good, out_of_range, failed);
+        if (good > 0) {
+            cli_printf(c, "mean %lu mm, spread %u..%u mm\r\n",
+                       (unsigned long)(sum / good), smallest, largest);
+        }
+    }
+    return CLI_OK;
+}
+
+/* Continuous mode, polled the way a main loop would rather than waited on. */
+static int cmd_tof_watch(cli_t *c, void *user_data)
+{
+    (void)user_data;
+
+    if (!tof_ready) {
+        cli_write(c, "run tof first\r\n");
+        return CLI_ERR_STATE;
+    }
+
+    uint32_t seconds = 5;
+    if (!cli_args_exhausted(c) && (!cli_next_u32(c, &seconds) || seconds == 0 ||
+                                   seconds > 60)) {
+        cli_write(c, "usage: tofwatch [seconds 1-60]\r\n");
+        return CLI_ERR_ARG;
+    }
+
+    if (vl53l0x_start_continuous(&tof, 0) != VL53L0X_OK) {
+        cli_write(c, "could not start continuous mode\r\n");
+        return CLI_ERR_FAILED;
+    }
+
+    const uint64_t until = time_us_64() + (uint64_t)seconds * 1000000u;
+    unsigned samples = 0;
+    unsigned polls = 0;
+
+    while (time_us_64() < until) {
+        polls++;
+        if (!vl53l0x_data_ready(&tof)) {
+            continue;   /* the point: nothing blocks */
+        }
+
+        uint16_t millimetres = 0;
+        const vl53l0x_result_t result = vl53l0x_read_continuous(&tof, &millimetres);
+        samples++;
+
+        if (result == VL53L0X_OK) {
+            cli_printf(c, "%5u mm\r\n", millimetres);
+        } else if (result == VL53L0X_ERR_OUT_OF_RANGE) {
+            cli_write(c, "    - \r\n");
+        } else {
+            cli_printf(c, "  %s\r\n", vl53l0x_result_name(result));
+        }
+    }
+
+    vl53l0x_stop_continuous(&tof);
+    cli_printf(c, "%u samples in %lu s (%u/s), %u polls found nothing ready\r\n",
+               samples, (unsigned long)seconds, samples / (unsigned)seconds,
+               polls - samples);
+    return CLI_OK;
+}
+
 static const cli_command_t own_commands[] = {
     { "scan",  "find every device on the bus",          cmd_scan,  NULL },
     { "probe", "probe <addr> - does anything answer",   cmd_probe, NULL },
@@ -272,6 +462,10 @@ static const cli_command_t own_commands[] = {
     { "write", "write <reg> <value> [width]",           cmd_write, NULL },
     { "dump",  "dump [first] [count] - a block of regs", cmd_dump, NULL },
     { "info",  "bus configuration",                     cmd_info,  NULL },
+    { "tof",   "tof [addr] - bring up a VL53L0X",       cmd_tof,   NULL },
+    { "tofprofile", "default|fast|accurate|long",       cmd_tof_profile, NULL },
+    { "tofread", "tofread [count] - single measurements", cmd_tof_read, NULL },
+    { "tofwatch", "tofwatch [seconds] - continuous",    cmd_tof_watch, NULL },
 };
 
 int main(void)

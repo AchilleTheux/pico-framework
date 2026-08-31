@@ -22,6 +22,7 @@ target_link_libraries(app_i2c_test PRIVATE
     pico_stdlib
     pico_framework::cli
     pico_framework::i2c_device
+    pico_framework::vl53l0x
 )
 
 pico_framework_set_warnings(main.c)

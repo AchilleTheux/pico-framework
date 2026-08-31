@@ -208,3 +208,12 @@ host_test(log_format_test
 target_include_directories(log_format_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/logging/include"
 )
+
+host_test(vl53l0x_timing_test
+    SOURCES
+        tests/components/vl53l0x_timing_test.c
+        components/vl53l0x/vl53l0x_timing.c
+)
+target_include_directories(vl53l0x_timing_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/vl53l0x/include"
+)
