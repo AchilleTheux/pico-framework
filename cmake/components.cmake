@@ -21,6 +21,7 @@ set(PICO_FRAMEWORK_COMPONENTS
     i2c_device
     vl53l0x
     wifi
+    bluetooth
     persistent_config
     logging
     flash_storage

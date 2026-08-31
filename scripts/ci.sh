@@ -49,6 +49,10 @@ MATRIX=(
     "bras_attrape_caisse:minimal:default"
     "bras_attrape_caisse:tests/firmware_update_test:default"
     "pico2:tests/firmware_update_test:write_flash"
+    "pico2_w:tests/bt_console_test:default"
+    # Both halves of the radio in one image, sharing one cyw43 arch.
+    "pico2_w:tests/bt_console_test:with_wifi"
+    "pico2:tests/bt_console_test:default"
     "pico2_w:tests/wifi_test:default"
     "pico_w:tests/wifi_test:default"
     # A radio component on a board with no radio: must still build.

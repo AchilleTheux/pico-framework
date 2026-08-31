@@ -33,6 +33,7 @@ first two components.
 | [`persistent_config`](components/persistent_config/) | key/value settings that survive power-off |
 | [`logging`](components/logging/) | levelled logging, compile-time filtered, several sinks |
 | [`wifi`](components/wifi/) | CYW43 station-mode connection management, with reconnect |
+| [`bluetooth`](components/bluetooth/) | a serial console over Classic Bluetooth SPP |
 
 Updating a board over a serial link, with no USB involved, is built from these:
 `hex_parser` decodes the image, `firmware_update` receives and verifies it,
@@ -50,7 +51,7 @@ The last four are the foundations of updating firmware over a serial link,
 without needing the BOOTSEL button. Their pure logic is complete and tested;
 the flash-backed half and the bootloader itself are not written yet.
 
-Still to come: Bluetooth, TCP and UDP over the WiFi link, and PWM.
+Still to come: TCP and UDP over the WiFi link, and PWM.
 
 ## Getting started
 

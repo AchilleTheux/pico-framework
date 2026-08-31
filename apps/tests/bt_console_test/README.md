@@ -1,0 +1,96 @@
+# bt_console_test
+
+The framework's CLI, over Bluetooth.
+
+The point is how little there is in `main.c`: the CLI, its built-in commands and
+everything else are unchanged, and only the `cli_stream_t` differs.
+
+## Required hardware
+
+A **Pico W or Pico 2 W**, and a laptop or phone with Bluetooth. It builds for any
+board; without a radio it says so over USB and does nothing else.
+
+## Pairing
+
+The board reports over **USB** whether Bluetooth came up, because if it did not
+there is nowhere else to say so. Watch that first:
+
+```text
+bt_console_test  board pico2_w  radio present
+bt_console_init: ok
+pair with "pico-framework", then open the serial port it offers
+```
+
+Then, on Linux:
+
+```bash
+bluetoothctl
+  scan on                      # wait for "pico-framework"
+  pair    XX:XX:XX:XX:XX:XX
+  trust   XX:XX:XX:XX:XX:XX
+  quit
+
+sudo rfcomm bind 0 XX:XX:XX:XX:XX:XX 1
+picocom /dev/rfcomm0
+```
+
+The `1` is the RFCOMM channel. On Windows and macOS the board appears as a
+serial port once paired, with no equivalent of `rfcomm bind`.
+
+You should get:
+
+```text
+bt_console_test - type help
+bt>
+```
+
+## What to try
+
+```text
+bt> help          the framework's built-in commands, over Bluetooth
+bt> version
+bt> uptime
+bt> btstatus      link state, and bytes dropped for want of buffer
+bt> flood 200     far more output than one RFCOMM packet
+```
+
+`flood` is the interesting one. It produces output much faster than RFCOMM
+drains it, which is exactly the case the buffering exists for, and then reports
+how much had to be dropped. On the default 2 KB output buffer a few hundred lines
+should come through intact; a much larger flood will start dropping, and it will
+say so rather than truncating quietly.
+
+## Expected result
+
+| Step | Expect |
+|------|--------|
+| USB output at boot | `radio present`, `bt_console_init: ok` |
+| scanning from a host | `pico-framework` appears |
+| pairing | succeeds without a PIN prompt on a modern host |
+| opening the port | the greeting and a `bt>` prompt |
+| `help` | the full command list, uninterrupted |
+| `flood 200` | 200 numbered lines in order, `0 bytes dropped` |
+| `flood 500` | may report dropped bytes; whatever arrives is in order from the start |
+| closing the terminal | USB reports `bluetooth peer disconnected` |
+| reopening | greeting again, with no stale text from the last session |
+
+## Interpreting failures
+
+| Symptom | Likely cause |
+|---------|--------------|
+| `radio none on this board` | not a W board |
+| `bt_console_init: bluetooth stack would not start` | BTstack refused; check the USB output for its own log lines |
+| never appears when scanning | `discoverable` is false, or the host is caching an old scan. Try `scan off` then `scan on` |
+| pairs but offers no serial port | the SDP record is not being read as one. This is the part most likely to be wrong, since it has never been tested |
+| port opens but nothing arrives | `RFCOMM_EVENT_CAN_SEND_NOW` is not reaching the handler, so nothing is ever flushed |
+| output arrives with gaps | dropped bytes; `btstatus` will say so and the buffer is too small |
+| output arrives out of order | a genuine bug in the flow control, and worth reporting in detail — the host tests cover this and would need to have missed something |
+| first thing seen is text from a previous session | the disconnect handler is not clearing the buffers |
+
+## A warning
+
+Pairing here **authenticates nothing** — Secure Simple Pairing's "just works"
+association is accepted without comparing a number, because a robot has no
+screen. Anyone in range during pairing gets a full console, `reboot` and
+`bootsel` included. Set `discoverable = false` once paired; see the component
+README.

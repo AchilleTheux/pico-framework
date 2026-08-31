@@ -226,3 +226,14 @@ host_test(wifi_policy_test
 target_include_directories(wifi_policy_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/wifi/include"
 )
+
+host_test(bt_stream_test
+    SOURCES
+        tests/components/bt_stream_test.c
+        components/bluetooth/bt_stream.c
+        components/ring_buffer/ring_buffer.c
+)
+target_include_directories(bt_stream_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/bluetooth/include"
+    "${PICO_FRAMEWORK_ROOT}/components/ring_buffer/include"
+)
