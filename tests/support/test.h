@@ -24,6 +24,8 @@
 #define PICO_FRAMEWORK_TEST_H
 
 #include <inttypes.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 

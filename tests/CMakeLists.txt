@@ -123,3 +123,21 @@ target_include_directories(servo_registers_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/feetech/include"
     "${PICO_FRAMEWORK_ROOT}/components/servo_bus/include"
 )
+
+host_test(crc_test
+    SOURCES
+        tests/components/crc_test.c
+        components/crc/crc.c
+)
+target_include_directories(crc_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/crc/include"
+)
+
+host_test(ring_buffer_test
+    SOURCES
+        tests/components/ring_buffer_test.c
+        components/ring_buffer/ring_buffer.c
+)
+target_include_directories(ring_buffer_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/ring_buffer/include"
+)
