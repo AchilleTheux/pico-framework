@@ -45,6 +45,9 @@ MATRIX=(
     "bras_attrape_caisse:minimal:default"
     "bras_attrape_caisse:tests/firmware_update_test:default"
     "pico2:tests/firmware_update_test:write_flash"
+    "pico:tests/serial_update_test:default"
+    "pico2:tests/serial_update_test:with_apply"
+    "bras_attrape_caisse:tests/serial_update_test:with_apply"
 )
 
 QUICK_MATRIX=(
@@ -124,6 +127,34 @@ for entry in "${MATRIX[@]}"; do
 done
 
 echo
+
+# ---------------------------------------------------------------------------
+# Host and device must agree on the image checksum
+#
+# The serial update rests on it: the board checksums the flash it wrote and the
+# host predicts what that will be. If the two drift apart, every transfer fails
+# verification and neither side says which is wrong.
+# ---------------------------------------------------------------------------
+
+if [[ ${#failures[@]} -eq 0 ]]; then
+    rule
+    echo "host and device checksum agreement"
+    rule
+    agreement_images=()
+    for entry in "${MATRIX[@]}"; do
+        IFS=: read -r board app profile <<< "$entry"
+        [[ "$app" == *serial_update_test* ]] || continue
+        agreement_images+=("build/$board/$app/$profile/apps/$app/app_$(basename "$app").hex")
+    done
+
+    if [[ ${#agreement_images[@]} -gt 0 ]]; then
+        if ! "$ROOT/scripts/check-hex-agreement.sh" "${agreement_images[@]}"; then
+            failures+=("host/device checksum agreement")
+        fi
+    fi
+    echo
+fi
+
 rule
 if [[ ${#failures[@]} -eq 0 ]]; then
     echo "all ${#results[@]} configurations built"

@@ -170,3 +170,14 @@ host_test(flash_layout_test
 target_include_directories(flash_layout_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/flash_storage/include"
 )
+
+host_test(firmware_receive_test
+    SOURCES
+        tests/components/firmware_receive_test.c
+        components/firmware_update/firmware_receive.c
+        components/hex_parser/hex_parser.c
+)
+target_include_directories(firmware_receive_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/firmware_update/include"
+    "${PICO_FRAMEWORK_ROOT}/components/hex_parser/include"
+)

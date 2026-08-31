@@ -40,6 +40,7 @@ SDK_DIR      := $(ROOT)/lib/pico-sdk
 APP_TARGET := app_$(notdir $(APP))
 ELF        := $(BUILD_DIR)/apps/$(APP)/$(APP_TARGET).elf
 UF2        := $(BUILD_DIR)/apps/$(APP)/$(APP_TARGET).uf2
+HEX        := $(BUILD_DIR)/apps/$(APP)/$(APP_TARGET).hex
 
 # Prefer Ninja when it is installed; fall back to Make.
 GENERATOR ?= $(shell command -v ninja >/dev/null 2>&1 && echo Ninja || echo "Unix Makefiles")
@@ -192,11 +193,15 @@ flash: build
 		echo "error: $(PICOTOOL) not found in PATH"; exit 1; }
 	$(PICOTOOL) load -f -x "$(UF2)"
 
-# Flashes the board on a named serial port, without needing BOOTSEL. Asks that
-# board to reboot into the bootloader, then loads over USB; see the script for
-# what that does and does not cover.
+# Sends the image to a board over a serial port, with no USB involved. The
+# firmware on it must have been built with the framework's firmware update
+# service; see the script.
+#
+# Stages and verifies but does not install. Add APPLY=1, or send fwapply
+# yourself, once fwstatus looks right.
 flash-serial: build
-	@"$(ROOT)/scripts/flash-serial.sh" "$(UF2)" "$(PORT)"
+	@SERIAL_UPDATE_APPLY=$(if $(filter 1 yes on,$(APPLY)),1,0) \
+		"$(ROOT)/scripts/flash-serial.sh" "$(HEX)" "$(PORT)"
 
 size: build
 	@arm-none-eabi-size "$(ELF)"
@@ -224,8 +229,9 @@ help:
 	@echo "  configure        configure the build directory only"
 	@echo "  reconfigure      delete and re-configure (after editing a profile)"
 	@echo "  flash            build, then load over USB with picotool"
-	@echo "  flash-serial     reboot the board on PORT, then load. Takes"
-	@echo "                   PORT=/dev/ttyACM0 or a bare /dev/ttyACM0"
+	@echo "  flash-serial     send the image over a serial port, no USB needed."
+	@echo "                   Takes PORT=/dev/ttyACM0 or a bare /dev/ttyACM0;"
+	@echo "                   add APPLY=1 to install it as well as stage it"
 	@echo "  size             build, then report section sizes"
 	@echo "  test             build and run the host-side unit tests"
 	@echo "  ci               everything CI checks: tests plus the build matrix"

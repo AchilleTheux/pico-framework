@@ -1,56 +1,51 @@
 #!/usr/bin/env bash
 #
-# Flash a board identified by its serial port, without touching BOOTSEL.
+# Send a firmware image to a board over a serial port.
 #
-# Usage: flash-serial.sh <image.uf2> [port]
+# Usage: flash-serial.sh <image.hex> [port]
 #
-# What this does today, stated plainly because the name promises more than the
-# mechanism delivers:
+# This is a genuine serial upload, not a way to avoid the BOOTSEL button: the
+# board needs no USB connection at all. The firmware on it receives the image
+# over the same link that carries its console, writes it to a staging region of
+# flash, checks it against the sender's checksum, and — if the install step was
+# built in — copies it over itself and reboots.
 #
-#   1. Asks the firmware on `port` to reboot into the bootloader. Two ways are
-#      tried, because which one works depends on how the board is attached:
+# The firmware must have been built with the firmware update service, which the
+# serial_update_test application demonstrates. A board running anything else
+# will not answer fwbegin, and this reports that rather than hanging.
 #
-#        - the CLI command `bootsel`, for firmware built with the cli component
-#          and a command that calls reset_usb_boot(). Works over a real UART.
-#        - a 1200-baud touch, which the Pico SDK turns into a reboot for any
-#          firmware built with pico_enable_stdio_usb. USB CDC only.
+# By default the image is staged and verified but *not* installed, because the
+# install is the only step that can leave a board unbootable. Pass --apply, or
+# send fwapply yourself once you are satisfied with what fwstatus reports.
 #
-#   2. Waits for the board to re-appear in BOOTSEL, then loads the image with
-#      picotool over USB.
-#
-# So the *upload* is still USB. What naming a port buys is knowing which board
-# you are flashing: `picotool load -f` on a bench with three Picos plugged in
-# will pick one of them, whereas rebooting through one specific port puts
-# exactly one board into BOOTSEL.
-#
-# A genuine serial-only upload needs the resident bootloader that is not built
-# yet. When it exists it belongs here, as a third mechanism tried before the
-# USB path.
+# The protocol itself is in serial_update.py, which also predicts the checksum
+# the board will compute. That prediction is checked against the board's own
+# implementation by check-hex-agreement.sh, on every CI run.
 
 set -euo pipefail
 
 IMAGE="${1:-}"
 PORT="${2:-}"
 
-# Seconds to wait for the board to come back in BOOTSEL.
-RESET_TIMEOUT="${SERIAL_RESET_TIMEOUT:-10}"
+# Whether to install after verifying. Off by default; see the header.
+APPLY="${SERIAL_UPDATE_APPLY:-0}"
 
-# Command sent to a CLI-equipped firmware to ask it to reboot.
-RESET_COMMAND="${SERIAL_RESET_COMMAND:-bootsel}"
+# Line rate. Ignored by a USB CDC port; a CLI on a real UART runs at whatever
+# its profile configured.
+BAUD="${SERIAL_UPDATE_BAUD:-115200}"
 
-# Rate to talk to that CLI at. Ignored by a USB CDC port, but a CLI on a real
-# UART runs at whatever its profile configured.
-RESET_BAUD="${SERIAL_RESET_BAUD:-115200}"
-
-# Baud rate the SDK treats as "reboot into BOOTSEL" on a USB CDC port.
-MAGIC_BAUD=1200
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DRIVER="$ROOT/scripts/serial_update.py"
 
 die() { echo "error: $*" >&2; exit 1; }
 
 [[ -n "$IMAGE" ]] || die "no image given"
 [[ -f "$IMAGE" ]] || die "image not found: $IMAGE"
+[[ "$IMAGE" == *.hex ]] || die "expected a .hex file, got: $IMAGE"
+[[ -f "$DRIVER" ]] || die "missing $DRIVER"
 
-command -v picotool >/dev/null 2>&1 || die "picotool not found in PATH"
+command -v python3 >/dev/null 2>&1 || die "python3 not found in PATH"
+command -v stty >/dev/null 2>&1 || die "stty not found in PATH"
 
 # ---------------------------------------------------------------------------
 # Choose a port
@@ -83,57 +78,33 @@ fi
 [[ -w "$PORT" ]] || die "cannot write to $PORT (a dialout/uucp group membership is usually what is missing)"
 
 # ---------------------------------------------------------------------------
-# Ask the board to reboot
+# Send it
 # ---------------------------------------------------------------------------
 
-echo "asking the board on $PORT to reboot into the bootloader"
+# Raw mode: the driver does its own line handling, and any terminal processing
+# in between would mangle the records.
+stty -F "$PORT" raw "$BAUD" -echo -echoe -echok -echoctl -echoke 2>/dev/null \
+    || die "cannot configure $PORT at $BAUD baud"
 
-# The CLI route. Harmless when the firmware has no such command: it answers
-# "unknown command" and carries on.
-if stty -F "$PORT" raw "$RESET_BAUD" -echo >/dev/null 2>&1; then
-    printf '%s\r\n' "$RESET_COMMAND" > "$PORT" 2>/dev/null || true
-    sleep 0.3
+args=("$IMAGE" "$PORT")
+if [[ "$APPLY" == "1" ]]; then
+    args+=(--apply)
 fi
 
-# The 1200-baud route. The SDK enables this by default for anything built with
-# pico_enable_stdio_usb, so it works even for firmware with no CLI at all. It
-# does nothing on a real UART, where the baud rate is just a baud rate.
-stty -F "$PORT" "$MAGIC_BAUD" >/dev/null 2>&1 || true
-sleep 0.3
-
-# ---------------------------------------------------------------------------
-# Wait for BOOTSEL, then load
-# ---------------------------------------------------------------------------
-
-echo -n "waiting for the board to appear in BOOTSEL"
-deadline=$(( SECONDS + RESET_TIMEOUT ))
-found=0
-while (( SECONDS < deadline )); do
-    if picotool info >/dev/null 2>&1; then
-        found=1
-        break
-    fi
-    echo -n "."
-    sleep 0.3
-done
-echo
-
-if (( found == 0 )); then
+if ! python3 "$DRIVER" "${args[@]}"; then
     cat >&2 <<EOF
-error: no board in BOOTSEL after ${RESET_TIMEOUT}s.
 
-  The reboot request went out on $PORT but nothing came back. Likely causes:
+  The transfer did not complete. Things worth checking:
 
-    - the firmware on that port has neither a '$RESET_COMMAND' command nor USB
-      stdio, so it never saw the request. Check with 'make flash' instead,
-      which resets over picotool's own vendor interface.
-    - the port is a USB-to-serial adapter on a real UART. The reboot may well
-      have worked, but the upload still needs a USB connection to the board,
-      which does not exist yet without a resident bootloader.
-    - picotool cannot see USB devices. Try it directly: picotool info
+    - is the firmware on $PORT built with the firmware update service?
+      Only then does it answer fwbegin. The serial_update_test application
+      is the reference; anything else will simply not reply.
+    - is this the right port? Several boards look alike; 'make flash-serial'
+      with no port lists what it can see.
+    - does the board's console run at $BAUD baud? A USB CDC port ignores the
+      rate, a real UART does not. Set SERIAL_UPDATE_BAUD to change it.
+    - was the image built for this board? An image linked for a different
+      flash size can be larger than the staging region.
 EOF
     exit 1
 fi
-
-echo "loading $(basename "$IMAGE")"
-picotool load -x "$IMAGE"

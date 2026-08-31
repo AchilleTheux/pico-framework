@@ -29,6 +29,12 @@ first two components.
 | [`firmware_update`](components/firmware_update/) | image header and the boot decision (pure half) |
 | [`flash_storage`](components/flash_storage/) | bounded erase/program/read, and the flash layout |
 
+Updating a board over a serial link, with no USB involved, is built from these:
+`hex_parser` decodes the image, `firmware_update` receives and verifies it,
+`flash_storage` stages it, and `cli` carries both the records and the commands
+on one console. [`serial_update_test`](apps/tests/serial_update_test/) is the
+worked example.
+
 Each has host tests and a hardware test application. `ws2812` and `cli` are
 ported from working firmware and exercise their hardware paths; the four servo
 components build clean for both architectures and their protocol handling is
