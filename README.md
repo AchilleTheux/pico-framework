@@ -47,13 +47,15 @@ groups have manual applications under `apps/tests/`; a successful cross-build
 is recorded separately from a physical result. The RP2040-Zero has validated
 USB stdio and CLI, its onboard WS2812, bare-pin PIO UART loopback, persistent
 configuration on flash, and an empty I2C bus. CAN, real I2C devices, smart
-servos, radio operation, and the firmware installer still await the hardware
-listed by their test applications.
+servos, and radio operation still await the hardware listed by their test
+applications. The serial firmware installer has completed an end-to-end
+stage, verify, in-place install, automatic reboot, and second transfer over a
+hardware UART on the RP2040-Zero.
 
 The serial updater is implemented as an application service: it stages and
 verifies an image, then an opt-in RAM-resident routine installs it in place.
 There is no separate resident bootloader. Its host logic and linked layout are
-tested, but the end-to-end flash install has not yet run on hardware.
+tested, and the end-to-end flash install has been validated on RP2040 hardware.
 
 Still to come as components: TCP and UDP over the WiFi link, PWM, and a
 flash-backed logging sink.

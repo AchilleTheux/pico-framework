@@ -27,13 +27,18 @@ static uint32_t g_watchdog_load;
 /*
  * Reset the chip immediately, without calling into flash.
  *
- * Writing 0 to the watchdog's load register makes it expire at once. The
- * PSM_WDSEL bits that decide how much of the chip a watchdog reset clears were
- * set by watchdog_enable() before the copy started.
+ * Use the watchdog's force-trigger path, matching watchdog_reboot(0, 0, 0).
+ * Loading a zero countdown is not the documented immediate-reset mechanism
+ * and left an RP2040 parked in this loop after a successful install.
+ *
+ * The PSM_WDSEL bits that decide how much of the chip a watchdog reset clears
+ * were set by watchdog_enable() before the copy started. Scratch 4 is cleared
+ * so the boot ROM takes the ordinary flash boot path.
  */
 static inline void __attribute__((noreturn)) reset_now(void)
 {
-    watchdog_hw->load = 0;
+    watchdog_hw->scratch[4] = 0;
+    hw_set_bits(&watchdog_hw->ctrl, WATCHDOG_CTRL_TRIGGER_BITS);
     while (true) {
         tight_loop_contents();
     }

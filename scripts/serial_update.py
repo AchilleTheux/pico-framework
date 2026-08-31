@@ -254,6 +254,7 @@ def main():
 
         stream_records(port, args.image, args.quiet)
 
+        port.drain()
         print("verifying")
         reply = port.command(f"fwverify {crc:08X}", 20.0, verbose=not args.quiet)
         if not any("verified" in line for line in reply):

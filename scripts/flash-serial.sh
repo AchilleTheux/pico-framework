@@ -101,6 +101,8 @@ if ! python3 "$DRIVER" "${args[@]}"; then
       is the reference; anything else will simply not reply.
     - is this the right port? Several boards look alike; 'make flash-serial'
       with no port lists what it can see.
+    - is another terminal or IDE serial monitor using $PORT? Two readers split
+      the reply between them, producing missing fragments and false timeouts.
     - does the board's console run at $BAUD baud? A USB CDC port ignores the
       rate, a real UART does not. Set SERIAL_UPDATE_BAUD to change it.
     - was the image built for this board? An image linked for a different

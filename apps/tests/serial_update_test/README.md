@@ -103,13 +103,16 @@ Read `components/firmware_update/include/firmware_apply.h`. In short:
 | `MISMATCH` on verify | what landed is not what was sent. Retry; if it repeats, the link is corrupting data in a way the record checksums are not catching |
 | `refusing: run fwverify first` | working as intended |
 | board silent after `fwapply` for more than ~10 s | the install stalled. The watchdog should have reset it; if not, recover over BOOTSEL |
+| replies contain alternating fragments of words | another process may also have the port open. Close minicom, picocom, screen, or any IDE serial monitor before running the updater |
 
 ## What has and has not been tested
 
-The receive path, the record handling and the checksum agreement between host
-and board are covered by host tests and by a CI check that runs both
+The receive path, record handling, and checksum agreement between host and
+board are covered by host tests and by a CI check that runs both
 implementations over real built images.
 
-**No part of this has been run on hardware.** In particular `fwapply` has never
-executed. See the final section of `components/firmware_update/README.md` for
-what specifically wants reviewing first.
+The same service was exercised through the `simple_robot` application on an
+RP2040-Zero over a 115200-baud hardware UART: stage, verify, `fwapply`, automatic
+reboot, and a second successful stage and verify without a manual reset. The
+remaining unverified cases are listed in
+`components/firmware_update/README.md`.

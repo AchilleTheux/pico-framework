@@ -69,7 +69,10 @@ an image but cannot overwrite the running application.
 
 Host tests cover the pure policy and CI checks the host sender's predicted
 checksum against the device implementation over real linked HEX images. The
-flash-backed receive and install path has not yet run on hardware.
+flash-backed receive and install path has also run end to end on an
+RP2040-Zero over a 115200-baud hardware UART: a 48,212-byte image was staged,
+verified, installed in place, rebooted automatically, then accepted and
+verified a second transfer without a manual reset.
 
 ## Testing
 
@@ -77,7 +80,8 @@ flash-backed receive and install path has not yet run on hardware.
 address bounds, page assembly, out-of-order records, erased gaps, failure
 states, and the flash layout. The cases that earn their place are the ones an
 interrupted or reordered transfer actually produces. Manifest recovery and the
-CLI service are target-only and remain part of the pending hardware test.
+CLI service remain target-only; the ordinary receive, verify, install, and
+reboot path is now covered by a physical test.
 
 One known gap, stated rather than hidden: removing the `memset()` in
 `firmware_image_header_init()` does not fail any test, because the struct
@@ -137,19 +141,15 @@ image can be read through the normal memory window between them.
 
 **It costs 4 KiB of RAM**, for the sector buffer, in any build that includes it.
 
-## What has not been verified
+## What remains to be verified
 
-Everything below has been written and builds clean, and none of it has run on
-hardware. Worth a review before it does:
+The normal single-core RP2040 path has run on hardware. These cases remain:
 
-* **`firmware_apply` itself.** The RAM residency and the call targets are
-  checked in the linked binary, but the sequence has never executed. The
-  specific things to look at are whether the watchdog petting is frequent
-  enough for a slow sector erase, and whether reading the staged image through
-  XIP between `flash_range_program` calls is as safe as it looks.
-* **The reset.** It writes `watchdog_hw->load = 0` to expire the watchdog
-  immediately, relying on the `PSM_WDSEL` bits `watchdog_enable()` set earlier.
-  A deliberate reset through the SDK would be clearer but lives in flash.
+* **Interrupted installation.** BOOTSEL recovery is expected to remain
+  available, but deliberate power loss during the erase/program window has
+  not been exercised.
+* **RP2350.** The same SDK flash APIs and watchdog trigger build there, but the
+  install path has only run physically on RP2040.
 * **The other core.** Nothing parks it; the header says the caller must. A
   single-core application is fine, and every application here is single-core.
 * **Erase timing.** `fwbegin` erases synchronously, and a whole-region erase on
