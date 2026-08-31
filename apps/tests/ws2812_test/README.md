@@ -21,7 +21,8 @@ is the procedure (DESIGN_DOC.md section 19).
 
 The default profile assumes 16 LEDs on GPIO 10. `long_strip` assumes 50 LEDs on
 GPIO 11. `rp2040_zero` drives the board's single onboard WS2812 on GPIO 16 and
-needs no wiring. To match a different bench setup, add a profile under
+needs no wiring. That profile loops blue, red, green, and off for one second
+each, providing an unambiguous visual check. To match a different bench setup, add a profile under
 `profiles/tests/ws2812_test/` rather than editing the source.
 
 ## Running

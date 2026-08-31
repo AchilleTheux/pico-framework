@@ -29,6 +29,10 @@
 #define WS2812_TEST_USE_DMA 0
 #endif
 
+#ifndef WS2812_TEST_VISUAL_CONFIRM
+#define WS2812_TEST_VISUAL_CONFIRM 0
+#endif
+
 #define STEP_MS 1500
 
 /* The application owns the pixel buffer; the component never allocates. */
@@ -41,6 +45,32 @@ static ws2812_strip_t strip;
 static uint32_t wire_buffer[WS2812_TEST_LENGTH];
 #endif
 
+#if WS2812_TEST_VISUAL_CONFIRM
+static void run_visual_confirmation(void)
+{
+    static const struct {
+        const char *name;
+        ws2812_color_t color;
+    } steps[] = {
+        { "blue",  WS2812_COLOR_BLUE },
+        { "red",   WS2812_COLOR_RED },
+        { "green", WS2812_COLOR_GREEN },
+        { "off",   WS2812_COLOR_BLACK },
+    };
+
+    puts("visual confirmation: blue, red, green, off; one second each");
+    while (true) {
+        for (unsigned i = 0; i < count_of(steps); i++) {
+            ws2812_fill(&strip, steps[i].color);
+            ws2812_show(&strip);
+            printf("  %s\n", steps[i].name);
+            sleep_ms(1000);
+        }
+    }
+}
+#endif
+
+#if !WS2812_TEST_VISUAL_CONFIRM
 static void hold(const char *description)
 {
     printf("  %s\n", description);
@@ -185,6 +215,7 @@ static void test_async_animation(void)
     ws2812_wait(&strip);
 }
 #endif
+#endif /* !WS2812_TEST_VISUAL_CONFIRM */
 
 int main(void)
 {
@@ -216,6 +247,9 @@ int main(void)
     printf("\nws2812_test: pin=%d length=%d rgbw=%d board=%s\n",
            WS2812_TEST_PIN, WS2812_TEST_LENGTH, WS2812_TEST_IS_RGBW, PICO_BOARD);
 
+#if WS2812_TEST_VISUAL_CONFIRM
+    run_visual_confirmation();
+#else
     unsigned pass = 0;
     while (true) {
         printf("\n--- pass %u ---\n", pass++);
@@ -232,4 +266,5 @@ int main(void)
         ws2812_show(&strip);
         sleep_ms(1000);
     }
+#endif
 }
