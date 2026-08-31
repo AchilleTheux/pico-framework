@@ -141,3 +141,23 @@ host_test(ring_buffer_test
 target_include_directories(ring_buffer_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/ring_buffer/include"
 )
+
+host_test(hex_parser_test
+    SOURCES
+        tests/components/hex_parser_test.c
+        components/hex_parser/hex_parser.c
+)
+target_include_directories(hex_parser_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/hex_parser/include"
+)
+
+host_test(firmware_image_test
+    SOURCES
+        tests/components/firmware_image_test.c
+        components/firmware_update/firmware_image.c
+        components/crc/crc.c
+)
+target_include_directories(firmware_image_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/firmware_update/include"
+    "${PICO_FRAMEWORK_ROOT}/components/crc/include"
+)

@@ -23,6 +23,10 @@ first two components.
 | [`servo_bus`](components/servo_bus/) | Dynamixel Protocol 1.0 packets, transactions, retries |
 | [`ax12`](components/ax12/) | Dynamixel AX-12 / AX-18 control table and operations |
 | [`feetech`](components/feetech/) | Feetech STS / SMS / SCS control table and operations |
+| [`crc`](components/crc/) | CRC-32 and CRC-16, standard parameterisations |
+| [`ring_buffer`](components/ring_buffer/) | byte FIFO over caller-owned storage |
+| [`hex_parser`](components/hex_parser/) | Intel HEX record decoding |
+| [`firmware_update`](components/firmware_update/) | image header and the boot decision (pure half) |
 
 Each has host tests and a hardware test application. `ws2812` and `cli` are
 ported from working firmware and exercise their hardware paths; the four servo
@@ -30,7 +34,12 @@ components build clean for both architectures and their protocol handling is
 checked against the AX-12 datasheet by the host tests, but **none of them has
 yet been run against a real servo bus**.
 
-Still to come: WiFi.
+The last four are the foundations of updating firmware over a serial link,
+without needing the BOOTSEL button. Their pure logic is complete and tested;
+the flash-backed half and the bootloader itself are not written yet.
+
+Still to come: the flash and bootloader half of the update path, PWM, I2C, and
+WiFi.
 
 ## Getting started
 
@@ -153,6 +162,10 @@ components/half_duplex_uart/  single-wire UART for servo buses
 components/servo_bus/   Protocol 1.0 packets and transactions
 components/ax12/        Dynamixel AX-12 servos
 components/feetech/     Feetech STS/SMS/SCS servos
+components/crc/         CRC-32 and CRC-16
+components/ring_buffer/ byte FIFO
+components/hex_parser/  Intel HEX decoding
+components/firmware_update/  firmware image format and boot decision
 apps/minimal/           the smallest complete application
 apps/tests/             one hardware test application per component
 boards/                 custom Pico SDK board headers
@@ -261,6 +274,7 @@ Every application builds warning-free with `-Werror` for:
 | `pico`     | rp2040         | Armv6-M          |
 | `pico2`    | rp2350-arm-s   | Armv8-M mainline |
 | `pico2_w`  | rp2350-arm-s   | Armv8-M mainline |
+| `bras_attrape_caisse` | rp2040 | Armv6-M — a custom header in `boards/` |
 
 ## Next steps
 

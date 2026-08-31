@@ -17,6 +17,8 @@
 set(PICO_FRAMEWORK_COMPONENTS
     crc
     ring_buffer
+    hex_parser
+    firmware_update
     ws2812
     cli
     half_duplex_uart

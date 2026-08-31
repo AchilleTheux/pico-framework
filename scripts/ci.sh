@@ -39,6 +39,11 @@ MATRIX=(
     "pico2:tests/servo_test:feetech_sts"
     "pico2:tests/servo_test:feetech_scs"
     "pico2:tests/servo_test:ax12_leds"
+    "pico:tests/firmware_update_test:default"
+    "pico2:tests/firmware_update_test:default"
+    # A custom board header from boards/, to keep the board mechanism covered.
+    "bras_attrape_caisse:minimal:default"
+    "bras_attrape_caisse:tests/firmware_update_test:default"
 )
 
 QUICK_MATRIX=(
