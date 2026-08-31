@@ -222,6 +222,10 @@ tests can compile directly, and the hardware part gets a test application. The
 through two function pointers, the whole interpreter is exercised on the host
 against a fake stream.
 
+The contributor guide, [Extending pico-framework](docs/extending-the-framework.md),
+walks through creating a component, application, profile, and custom board,
+including their CMake conventions and testing checklist.
+
 Where a component implements someone else's specification, the tests are
 written against that specification rather than against the implementation:
 `servo_protocol_test.c` checks the packet builder byte for byte against the
