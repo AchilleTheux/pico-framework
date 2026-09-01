@@ -50,7 +50,8 @@ configuration on flash, and an empty I2C bus. A Pico 2 W has validated both
 radio components: `wifi` (association, address acquisition, RSSI, and
 reconnection both from a console `connect` and from stored credentials after
 a power cycle — see [`wifi`'s README](components/wifi/README.md) for a real
-console-unresponsiveness caveat found during that validation) and
+console-unresponsiveness bug found, root-caused to a Pico SDK 2.3.0 RP2350
+regression, and worked around during that validation) and
 `bluetooth` (pairing with no PIN prompt, the SDP serial-port record, and
 RFCOMM flow control under a deliberate flood — that validation found and
 fixed a real bug in the test application itself, not the component; see
@@ -335,9 +336,11 @@ The initial roadmap in DESIGN_DOC.md section 24 is complete. Further work is
 driven by actual project needs rather than another architecture phase:
 
 - validate CAN, smart servos, and VL53L0X on the required hardware;
-- validate the narrow `CYW43_CONFIG_FILE` workaround for the Pico SDK 2.3.0
-  RP2350 timed-wait regression on hardware, then remove it when the SDK pin
-  advances to a release containing the upstream fix;
+- the narrow `CYW43_CONFIG_FILE` workaround for the Pico SDK 2.3.0 RP2350
+  timed-wait regression has passed the AP-off hardware test (2026-09-01);
+  remove it when the SDK pin advances to a release containing the upstream
+  fix (tracked as [pico-sdk#3078](https://github.com/raspberrypi/pico-sdk/issues/3078)
+  / [#3148](https://github.com/raspberrypi/pico-sdk/issues/3148));
 - add TCP/UDP, PWM, and persistent flash logging when an application needs them;
 - exercise the framework in a complete robot application rather than only the
   minimal image and component benches.

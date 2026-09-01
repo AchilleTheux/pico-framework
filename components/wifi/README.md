@@ -177,20 +177,27 @@ CYW43 driver. The CMake version guard stops selecting the override once the
 SDK pin advances beyond 2.3.0, so the workaround cannot silently outlive the
 upstream regression.
 
-The 2.2.0 A/B test confirms the diagnosis; the new 2.3.0 workaround still
-needs the same AP-off hardware test before it is considered validated. Even
-after that, CYW43 command submission remains synchronous and may consume up
-to its bounded driver timeout, so `wifi_poll()` is cooperative rather than a
-hard real-time call.
+The 2.2.0 A/B test confirms the diagnosis, and the 2.3.0-with-workaround build
+has since passed the identical AP-off hardware test (2026-09-01): preprocessed
+output confirmed both macros resolve to `busy_wait_us_32(1000)` in the built
+object, not the semaphore wait, and a 60+ second AP-down run on a Pico 2 W
+answered every `ping` within about a second, cycled `connecting` /
+`waiting to retry` normally throughout, and reassociated cleanly the moment
+the access point came back. Even with the workaround, CYW43 command
+submission remains synchronous and may consume up to its bounded driver
+timeout, so `wifi_poll()` is cooperative rather than a hard real-time call —
+the fix bounds the stall to about a millisecond per wait, it does not make
+the call reentrant.
 
 ## Status
 
 Association, address acquisition, RSSI, and reconnection after both a
 console-driven `connect` and a power cycle (from stored credentials) have all
 run successfully on a Pico 2 W. The retry attempt counter climbs as expected
-while an access point is down. The AP-off responsiveness test has passed with
-SDK 2.2.0 and exposed the SDK 2.3.0 regression; it still has to be repeated on
-SDK 2.3.0 with the framework workaround enabled.
+while an access point is down. The AP-off responsiveness test has now passed
+on both SDK 2.2.0 (unmodified) and SDK 2.3.0 with the framework's
+`CYW43_CONFIG_FILE` workaround enabled — console stayed responsive throughout
+in both cases.
 
 ## Testing
 
@@ -200,4 +207,5 @@ SDK 2.3.0 with the framework workaround enabled.
   `password`, `save`, `connect`. Credentials survive a power cycle and it
   reconnects on its own. Turning the access point off and back on is the
   interesting test: with the framework workaround enabled, `ping` and
-  `wifistatus` must remain responsive throughout the outage and reconnection.
+  `wifistatus` remain responsive throughout the outage and reconnection —
+  validated on hardware 2026-09-01.
