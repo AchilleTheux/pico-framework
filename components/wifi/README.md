@@ -126,28 +126,53 @@ reaches `cyw43_arch_wifi_connect_async()` — which, despite the name, calls
 `cyw43_wifi_join()` **synchronously**; only the *outcome* of the join is
 reported asynchronously through `cyw43_tcpip_link_status()`. Every exchange
 with the radio underneath that goes through `cyw43_do_ioctl()`
-(`lib/cyw43-driver/src/cyw43_ll.c`), which busy-waits up to
-`CYW43_IOCTL_TIMEOUT_US` (500 ms, vendored default) per call.
+(`lib/cyw43-driver/src/cyw43_ll.c`), which waits via
+`CYW43_DO_IOCTL_WAIT`/`CYW43_SDPCM_SEND_COMMON_WAIT`
+(`pico_cyw43_driver/include/cyw43_configport.h`) for up to
+`CYW43_IOCTL_TIMEOUT_US` — 1 second on this SDK's Pico port, which overrides
+the driver's own 500 ms fallback.
 
-Measured on a Pico 2 W running `wifi_test` (2026-09-01): with the configured
-access point genuinely unreachable, the console went completely unresponsive
-— no command produced output, and a single `ping` write eventually blocked
-for over ten minutes — before recovering on its own the moment the access
-point came back. A few hundred-millisecond ioctl timeouts do not by
-themselves explain a stall that long, so something in the join retry path
-gets stuck harder than a single `CYW43_IOCTL_TIMEOUT_US` wait once the AP has
-been gone for a while; this has not been root-caused further.
+Measured on a Pico 2 W running `wifi_test` on **Pico SDK 2.3.0** (2026-09-01):
+with the configured access point genuinely unreachable, the console went
+completely unresponsive — no command produced output, and a single `ping`
+write eventually blocked for over ten minutes — before recovering on its own
+the moment the access point came back. A single `CYW43_IOCTL_TIMEOUT_US` wait
+does not by itself explain a stall that long.
 
-Because `cli_poll()` and `wifi_poll()` share one loop in every application
-here (per DESIGN_DOC.md §2.1, this component does not run its own thread or
-core), that stall reaches the console too — on a robot, exactly when losing
-the network is the thing you'd want to debug. This lives in the vendored,
-pinned `cyw43-driver`/`pico_cyw43_arch` code, not in `wifi.c`, which already
-uses the async join call as documented above. A real fix needs `wifi_poll()`
-to run somewhere the rest of the application can't be blocked by it — e.g. a
-dedicated core — which is a bigger change than this component's current
-single-threaded contract; it has not been made. Until then, do not assume the
-console stays responsive while a configured AP is unreachable.
+**Root cause, confirmed by an A/B rebuild against Pico SDK 2.2.0 the same
+day**: `CYW43_DO_IOCTL_WAIT` resolves to
+`cyw43_await_background_or_timeout_us()` → `async_context_wait_for_work_until()`
+→ `sem_acquire_block_until()` → a hardware-alarm-driven `WFE` sleep. Pico SDK
+2.3.0 has a reported RP2350 regression where a short timed wait like this can
+go to sleep without its wakeup alarm actually armed, so the core only wakes on
+some *later, unrelated* event — here, the CYW43 host-wake interrupt when the
+AP reappears — rather than at its own deadline. That matches what was
+observed exactly: no AP means no such interrupt, so the wait — and with it
+`cli_poll()`, since it shares the same loop — never returns until the AP
+comes back. Upstream: RP2350 alarm/sleep issue
+[raspberrypi/pico-sdk#3078](https://github.com/raspberrypi/pico-sdk/issues/3078),
+CYW43-specific backtrace through this exact call chain
+[raspberrypi/pico-sdk#3148](https://github.com/raspberrypi/pico-sdk/issues/3148),
+both tracked against SDK 2.3.1.
+
+Rebuilding the identical `wifi_test` image against **Pico SDK 2.2.0**, with no
+other change, and repeating the same AP-off test for 60+ seconds: the console
+stayed continuously responsive throughout, `ping` answering within a second
+every time and the `[wifi] connecting` / `waiting to retry` cycle ticking
+normally the whole way. The stall did not reproduce at all on 2.2.0.
+
+This is a vendored SDK regression, not a design flaw in `wifi.c` — which
+already uses the async join call as intended — nor is it evidence that
+`wifi_poll()` needs its own core; that was this document's original
+(incorrect) conclusion before the SDK version was implicated. It has been
+left as a documented caveat rather than fixed: pinning the project to 2.2.0
+would be a project-wide change (every board and component, not just this
+one) and hasn't been decided on, and a narrower fix — overriding just
+`CYW43_DO_IOCTL_WAIT`/`CYW43_SDPCM_SEND_COMMON_WAIT` to a bounded
+`busy_wait_us()` via cyw43-driver's `CYW43_CONFIG_FILE` override hook,
+keeping 2.3.0 otherwise — was identified as viable but not attempted. Until
+one of those happens, do not assume the console stays responsive while a
+configured AP is unreachable, on this SDK version.
 
 ## Status
 

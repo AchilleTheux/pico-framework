@@ -336,8 +336,11 @@ driven by actual project needs rather than another architecture phase:
 
 - validate CAN, smart servos, and VL53L0X on the required hardware;
 - decide how to handle the `wifi` component's console-blocking caveat
-  (components/wifi/README.md) — document-only for now, or a structural fix
-  such as polling it from a dedicated core;
+  (components/wifi/README.md) — confirmed by an A/B test to be a Pico SDK
+  2.3.0 RP2350 regression (upstream issues #3078 and #3148, tracked for
+  2.3.1), not a design flaw here; document-only for now, versus pinning the
+  whole project to SDK 2.2.0 or a narrower `CYW43_CONFIG_FILE`-based
+  workaround that keeps 2.3.0;
 - add TCP/UDP, PWM, and persistent flash logging when an application needs them;
 - exercise the framework in a complete robot application rather than only the
   minimal image and component benches.
