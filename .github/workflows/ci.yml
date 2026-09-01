@@ -34,11 +34,12 @@ jobs:
       - name: Install the toolchain
         run: |
           sudo apt-get update
-          # Ubuntu packages the bare-metal C++ headers separately. They are
-          # needed by Pico SDK sources such as pico_cxx_options/new_delete.cpp.
+          # Ubuntu packages the bare-metal C++ headers and Newlib runtime
+          # separately. Pico SDK compiles C++ support sources and links the
+          # final firmware with arm-none-eabi-g++, even for C-only apps.
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi \
-            libstdc++-arm-none-eabi-dev
+            libstdc++-arm-none-eabi-dev libstdc++-arm-none-eabi-newlib
 
       # picotool turns the ELF into a UF2. Without it the SDK fetches and
       # builds picotool during configure, which costs a couple of minutes on
