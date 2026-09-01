@@ -184,8 +184,24 @@ class Port:
         return lines
 
 
-def stream_records(port, path, quiet):
-    """Send every record, reporting progress on one rewritten line."""
+def stream_records(port, path, quiet, record_delay):
+    """Send every record, reporting progress on one rewritten line.
+
+    record_delay paces the stream rather than firing records back-to-back.
+    The reason: every 256 bytes staged, the device does a blocking flash page
+    program (interrupts off, the other core parked — flash cannot be read
+    for code or data while it is being written to). The CLI's UART reader is
+    plain-polled, so all that is left to absorb bytes arriving during that
+    stall is the UART's 32-byte hardware FIFO — about 2.8 ms at 115200 baud.
+    Sent flat out, this driver used to outrun that comfortably: a page-flush
+    stall drops a byte, which corrupts that one HEX record's checksum, which
+    the device treats as a fatal transfer error — and every record after
+    that point is then rejected too ("no transfer in progress"), silently,
+    since replies are drained here without being read. One dropped byte
+    partway through a transfer this way used to cost everything sent after
+    it, surfacing only as a CRC mismatch at fwverify, with no clue where or
+    why.
+    """
     with open(path, "r", encoding="ascii") as handle:
         lines = [line.strip() for line in handle if line.strip()]
 
@@ -194,6 +210,8 @@ def stream_records(port, path, quiet):
 
     for index, line in enumerate(lines, start=1):
         port.write(line + "\r\n")
+        if record_delay > 0:
+            time.sleep(record_delay)
 
         # The device answers only occasionally, and anything it does say is
         # drained here so its buffer cannot fill and stall the transfer.
@@ -219,6 +237,12 @@ def main():
                              "the running firmware)")
     parser.add_argument("--erase-timeout", type=float, default=30.0,
                         help="seconds to allow for the staging erase")
+    parser.add_argument("--record-delay", type=float, default=0.005,
+                        help="seconds to pause after each record, so a page "
+                             "flush's blocking flash write cannot overrun the "
+                             "UART's hardware FIFO and silently drop a byte "
+                             "(default 5 ms; 4 ms was the measured minimum on "
+                             "the reference board — see stream_records())")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
@@ -252,7 +276,7 @@ def main():
                       "firmware update service?", file=sys.stderr)
             return 1
 
-        stream_records(port, args.image, args.quiet)
+        stream_records(port, args.image, args.quiet, args.record_delay)
 
         port.drain()
         print("verifying")

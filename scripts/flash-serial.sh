@@ -34,6 +34,12 @@ APPLY="${SERIAL_UPDATE_APPLY:-0}"
 # its profile configured.
 BAUD="${SERIAL_UPDATE_BAUD:-115200}"
 
+# Pause after each record; see stream_records() in serial_update.py for why
+# this exists (a blocking flash write can silently drop a byte on a real
+# UART if records arrive faster than this). 0 to disable, e.g. over a USB
+# CDC port, which has much deeper buffering and no equivalent stall.
+RECORD_DELAY="${SERIAL_UPDATE_RECORD_DELAY:-0.005}"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DRIVER="$ROOT/scripts/serial_update.py"
 
@@ -86,7 +92,7 @@ fi
 stty -F "$PORT" raw "$BAUD" -echo -echoe -echok -echoctl -echoke 2>/dev/null \
     || die "cannot configure $PORT at $BAUD baud"
 
-args=("$IMAGE" "$PORT")
+args=("$IMAGE" "$PORT" --record-delay "$RECORD_DELAY")
 if [[ "$APPLY" == "1" ]]; then
     args+=(--apply)
 fi
@@ -107,6 +113,11 @@ if ! python3 "$DRIVER" "${args[@]}"; then
       rate, a real UART does not. Set SERIAL_UPDATE_BAUD to change it.
     - was the image built for this board? An image linked for a different
       flash size can be larger than the staging region.
+    - a verification failure a few hundred bytes short of the image size, on
+      a real UART, usually means a page-flush's flash write outran the
+      record-delay pacing and dropped a byte. Try a larger
+      SERIAL_UPDATE_RECORD_DELAY (currently ${RECORD_DELAY}s) before
+      suspecting the link itself.
 EOF
     exit 1
 fi

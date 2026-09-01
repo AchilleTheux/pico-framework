@@ -213,6 +213,62 @@ static void setup(bool echo, bool enable_help)
     CHECK_EQ_INT(cli_init(&g_cli, &config), CLI_INIT_OK);
 }
 
+/* History and raw-line fixtures. History depth 3, 16 bytes per entry. */
+static char g_history[3 * 16];
+
+static void setup_with_history(void)
+{
+    memset(&g_stream, 0, sizeof(g_stream));
+    memset(&g_seen, 0, sizeof(g_seen));
+    memset(g_line, 0, sizeof(g_line));
+    memset(g_history, 0, sizeof(g_history));
+
+    const cli_config_t config = {
+        .commands = g_commands,
+        .command_count = sizeof(g_commands) / sizeof(g_commands[0]),
+        .stream = { .read = fake_read, .write = fake_write, .ctx = &g_stream },
+        .line_buffer = g_line,
+        .line_buffer_size = sizeof(g_line),
+        .prompt = "> ",
+        .echo = true,
+        .history_buffer = g_history,
+        .history_buffer_size = sizeof(g_history),
+        .history_entry_size = 16,
+    };
+
+    CHECK_EQ_INT(cli_init(&g_cli, &config), CLI_INIT_OK);
+}
+
+static void setup_with_filter_and_raw_prefix(cli_line_filter_fn filter, void *user_data,
+                                             char prefix)
+{
+    memset(&g_stream, 0, sizeof(g_stream));
+    memset(&g_seen, 0, sizeof(g_seen));
+    memset(&g_filter, 0, sizeof(g_filter));
+    memset(g_line, 0, sizeof(g_line));
+
+    const cli_config_t config = {
+        .commands = g_commands,
+        .command_count = sizeof(g_commands) / sizeof(g_commands[0]),
+        .stream = { .read = fake_read, .write = fake_write, .ctx = &g_stream },
+        .line_buffer = g_line,
+        .line_buffer_size = sizeof(g_line),
+        .prompt = "> ",
+        .echo = true,
+        .line_filter = filter,
+        .line_filter_user_data = user_data,
+        .raw_line_prefix = prefix,
+    };
+
+    CHECK_EQ_INT(cli_init(&g_cli, &config), CLI_INIT_OK);
+}
+
+/* Arrow-key bytes as an ordinary serial terminal sends them (ESC '[' <letter>). */
+#define KEY_UP    "\x1B[A"
+#define KEY_DOWN  "\x1B[B"
+#define KEY_RIGHT "\x1B[C"
+#define KEY_LEFT  "\x1B[D"
+
 static void setup_with_filter(bool echo, bool enable_help,
                               cli_line_filter_fn filter, void *user_data)
 {
@@ -437,6 +493,210 @@ TEST(the_prompt_is_written_after_each_command)
     setup(false, false);
     feed("noop\n");
     CHECK(output_contains("> "));
+}
+
+/* ---------------------------------------------------------------------------
+ * Arrow-key line editing
+ * -------------------------------------------------------------------------*/
+
+TEST(left_arrow_moves_the_cursor_so_typing_inserts_mid_line)
+{
+    setup(true, false);
+    feed("hello");
+    feed(KEY_LEFT KEY_LEFT); /* cursor between the two 'l's */
+    feed("X\n");
+    CHECK(output_contains("unknown command: helXlo"));
+}
+
+TEST(right_arrow_moves_the_cursor_back_toward_the_end)
+{
+    setup(true, false);
+    feed("hello");
+    feed(KEY_LEFT KEY_LEFT KEY_LEFT); /* cursor before the first 'l' */
+    feed(KEY_RIGHT);                 /* one step back: between the two 'l's */
+    feed("X\n");
+    CHECK(output_contains("unknown command: helXlo"));
+}
+
+TEST(right_arrow_stops_at_the_end_of_the_line)
+{
+    setup(true, false);
+    feed("ab");
+    feed(KEY_RIGHT KEY_RIGHT KEY_RIGHT); /* already at the end; extras are no-ops */
+    feed("X\n");
+    CHECK(output_contains("unknown command: abX"));
+}
+
+TEST(left_arrow_stops_at_the_start_of_the_line)
+{
+    setup(true, false);
+    feed("ab");
+    feed(KEY_LEFT KEY_LEFT KEY_LEFT KEY_LEFT); /* only two chars to cross */
+    feed("X\n");
+    CHECK(output_contains("unknown command: Xab"));
+}
+
+TEST(backspace_deletes_the_character_left_of_a_mid_line_cursor)
+{
+    setup(true, false);
+    feed("hello");
+    feed(KEY_LEFT KEY_LEFT); /* cursor between the two 'l's */
+    feed("\b");             /* deletes the first 'l' */
+    feed("\n");
+    CHECK(output_contains("unknown command: helo"));
+}
+
+TEST(echo_on_inserting_mid_line_rewrites_the_tail_and_walks_the_cursor_back)
+{
+    setup(true, false);
+    feed("ac");
+    feed(KEY_LEFT); /* cursor between 'a' and 'c' */
+    feed("b");
+    CHECK(output_contains("ac\bbc\b"));
+}
+
+TEST(an_unrecognised_escape_sequence_is_dropped_rather_than_typed)
+{
+    /* 'Z' is not a sequence this interpreter understands; the letter must not
+       leak into the line as ordinary text. */
+    setup(false, false);
+    feed("noop\x1B[Z\n");
+    CHECK_EQ_INT(g_seen.calls, 1);
+}
+
+/* ---------------------------------------------------------------------------
+ * History
+ * -------------------------------------------------------------------------*/
+
+TEST(up_arrow_recalls_the_most_recent_line)
+{
+    setup_with_history();
+    feed("noop\n");
+    feed(KEY_UP);
+    feed("\n");
+    CHECK_EQ_INT(g_seen.calls, 2);
+}
+
+TEST(up_arrow_repeated_walks_further_back_in_history)
+{
+    setup_with_history();
+    feed("noop\n");  /* g_marker_a */
+    feed("other\n"); /* g_marker_b */
+    feed(KEY_UP KEY_UP); /* "other", then "noop" */
+    feed("\n");
+    CHECK_EQ_INT(g_seen.calls, 3);
+    CHECK(g_seen.user_data == &g_marker_a);
+}
+
+TEST(up_arrow_does_not_go_past_the_oldest_entry)
+{
+    setup_with_history();
+    feed("noop\n");
+    feed(KEY_UP KEY_UP KEY_UP); /* one entry exists; extras are no-ops */
+    feed("\n");
+    CHECK_EQ_INT(g_seen.calls, 2);
+}
+
+TEST(down_arrow_returns_toward_the_newest_entry)
+{
+    setup_with_history();
+    feed("noop\n");
+    feed("other\n");
+    feed(KEY_UP KEY_UP); /* recall "noop" */
+    feed(KEY_DOWN);      /* back to "other" */
+    feed("\n");
+    CHECK_EQ_INT(g_seen.calls, 3);
+    CHECK(g_seen.user_data == &g_marker_b);
+}
+
+TEST(down_arrow_past_the_newest_entry_clears_the_line)
+{
+    setup_with_history();
+    feed("noop\n");
+    feed(KEY_UP);   /* recall "noop" */
+    feed(KEY_DOWN); /* back past it to a blank line */
+    feed("\n");     /* blank: nothing dispatched */
+    CHECK_EQ_INT(g_seen.calls, 1);
+}
+
+TEST(history_wraps_after_its_depth_is_exceeded)
+{
+    /* setup_with_history() gives depth 3. */
+    setup_with_history();
+    feed("aaa\n");
+    feed("bbb\n");
+    feed("ccc\n");
+    feed("ddd\n"); /* "aaa" is evicted */
+
+    feed(KEY_UP KEY_UP KEY_UP KEY_UP); /* only 3 entries to reach; the 4th is a no-op */
+    feed("\n");
+
+    CHECK_EQ_U32(output_count("unknown command: bbb"), 2u); /* typed, then recalled */
+    CHECK_EQ_U32(output_count("unknown command: aaa"), 1u); /* only ever typed: evicted */
+}
+
+TEST(history_browsing_restarts_from_newest_after_each_dispatch)
+{
+    setup_with_history();
+    feed("noop\n");
+    feed("other\n");
+    feed(KEY_UP);   /* recall "other" */
+    feed("\n");     /* dispatch it; browsing resets */
+    feed(KEY_UP);   /* starts from newest again: "other", not "noop" */
+    feed("\n");
+    CHECK_EQ_INT(g_seen.calls, 4);
+    CHECK(g_seen.user_data == &g_marker_b);
+}
+
+/* ---------------------------------------------------------------------------
+ * Raw lines
+ *
+ * A firmware image sent as Intel HEX shares the link with an interactive
+ * session; raw_line_prefix keeps it from polluting the human-facing side.
+ * -------------------------------------------------------------------------*/
+
+TEST(a_raw_line_produces_no_output_at_all)
+{
+    setup_with_filter_and_raw_prefix(filter_hex_records, NULL, ':');
+    feed(":020000041000EA\n");
+    CHECK_EQ_STR(g_stream.output, "");
+}
+
+TEST(a_line_not_matching_the_raw_prefix_is_echoed_as_usual)
+{
+    setup_with_filter_and_raw_prefix(filter_hex_records, NULL, ':');
+    feed("noop\n");
+    CHECK(output_contains("noop"));
+}
+
+TEST(a_raw_line_is_not_recorded_into_history)
+{
+    memset(&g_stream, 0, sizeof(g_stream));
+    memset(&g_seen, 0, sizeof(g_seen));
+    memset(g_line, 0, sizeof(g_line));
+    memset(g_history, 0, sizeof(g_history));
+
+    const cli_config_t config = {
+        .commands = g_commands,
+        .command_count = sizeof(g_commands) / sizeof(g_commands[0]),
+        .stream = { .read = fake_read, .write = fake_write, .ctx = &g_stream },
+        .line_buffer = g_line,
+        .line_buffer_size = sizeof(g_line),
+        .prompt = "> ",
+        .echo = true,
+        .history_buffer = g_history,
+        .history_buffer_size = sizeof(g_history),
+        .history_entry_size = 16,
+        .raw_line_prefix = ':',
+    };
+    CHECK_EQ_INT(cli_init(&g_cli, &config), CLI_INIT_OK);
+
+    feed("noop\n"); /* recorded */
+    feed(":aa\n");  /* raw: must not become the newest history entry */
+    feed(KEY_UP);
+    feed("\n");
+
+    CHECK_EQ_INT(g_seen.calls, 2); /* "noop" ran again, not ":aa" */
 }
 
 /* ---------------------------------------------------------------------------
@@ -716,6 +976,55 @@ TEST(init_accepts_an_empty_command_table)
     CHECK_EQ_INT(cli_init(&cli, &config), CLI_INIT_OK);
 }
 
+TEST(init_rejects_history_without_echo)
+{
+    /* Recalling a line the peer cannot see is not a feature. */
+    cli_t cli;
+    char line[64];
+    char history[3 * 16];
+    const cli_config_t config = {
+        .line_buffer = line,
+        .line_buffer_size = sizeof(line),
+        .echo = false,
+        .history_buffer = history,
+        .history_buffer_size = sizeof(history),
+        .history_entry_size = 16,
+    };
+    CHECK_EQ_INT(cli_init(&cli, &config), CLI_INIT_ERR_HISTORY_REQUIRES_ECHO);
+}
+
+TEST(init_rejects_a_history_entry_size_with_no_room_for_a_terminator)
+{
+    cli_t cli;
+    char line[64];
+    char history[3 * 16];
+    const cli_config_t config = {
+        .line_buffer = line,
+        .line_buffer_size = sizeof(line),
+        .echo = true,
+        .history_buffer = history,
+        .history_buffer_size = sizeof(history),
+        .history_entry_size = 1,
+    };
+    CHECK_EQ_INT(cli_init(&cli, &config), CLI_INIT_ERR_INVALID_ARG);
+}
+
+TEST(init_accepts_history_with_echo)
+{
+    cli_t cli;
+    char line[64];
+    char history[3 * 16];
+    const cli_config_t config = {
+        .line_buffer = line,
+        .line_buffer_size = sizeof(line),
+        .echo = true,
+        .history_buffer = history,
+        .history_buffer_size = sizeof(history),
+        .history_entry_size = 16,
+    };
+    CHECK_EQ_INT(cli_init(&cli, &config), CLI_INIT_OK);
+}
+
 /* ---------------------------------------------------------------------------
  * The line filter
  *
@@ -873,6 +1182,26 @@ TEST_MAIN(
     RUN(echo_on_erases_destructively_on_backspace);
     RUN(the_prompt_is_written_after_each_command);
 
+    RUN(left_arrow_moves_the_cursor_so_typing_inserts_mid_line);
+    RUN(right_arrow_moves_the_cursor_back_toward_the_end);
+    RUN(right_arrow_stops_at_the_end_of_the_line);
+    RUN(left_arrow_stops_at_the_start_of_the_line);
+    RUN(backspace_deletes_the_character_left_of_a_mid_line_cursor);
+    RUN(echo_on_inserting_mid_line_rewrites_the_tail_and_walks_the_cursor_back);
+    RUN(an_unrecognised_escape_sequence_is_dropped_rather_than_typed);
+
+    RUN(up_arrow_recalls_the_most_recent_line);
+    RUN(up_arrow_repeated_walks_further_back_in_history);
+    RUN(up_arrow_does_not_go_past_the_oldest_entry);
+    RUN(down_arrow_returns_toward_the_newest_entry);
+    RUN(down_arrow_past_the_newest_entry_clears_the_line);
+    RUN(history_wraps_after_its_depth_is_exceeded);
+    RUN(history_browsing_restarts_from_newest_after_each_dispatch);
+
+    RUN(a_raw_line_produces_no_output_at_all);
+    RUN(a_line_not_matching_the_raw_prefix_is_echoed_as_usual);
+    RUN(a_raw_line_is_not_recorded_into_history);
+
     RUN(a_decimal_argument_is_parsed);
     RUN(an_argument_with_a_0x_prefix_is_hexadecimal);
     RUN(hex_arguments_parse_with_or_without_a_prefix);
@@ -912,4 +1241,7 @@ TEST_MAIN(
     RUN(init_rejects_two_commands_with_the_same_name);
     RUN(init_accepts_a_table_with_no_duplicates);
     RUN(init_accepts_an_empty_command_table);
+    RUN(init_rejects_history_without_echo);
+    RUN(init_rejects_a_history_entry_size_with_no_room_for_a_terminator);
+    RUN(init_accepts_history_with_echo);
 )

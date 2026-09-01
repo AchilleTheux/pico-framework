@@ -66,6 +66,15 @@ static ws2812_color_t led_pixels[APP_LED_COUNT];
 static char line_buffer[600];
 
 /*
+ * Command history, recalled with the up/down arrow keys. A much smaller
+ * entry size than line_buffer: typed commands ("led red", "servo_ping 12")
+ * are short, and a HEX-upload-sized entry would waste RAM on every one of
+ * them. HEX records never land here in the first place — see raw_line_prefix
+ * below.
+ */
+static char history_buffer[8 * 48];
+
+/*
  * CLI command table combining:
  *  - Firmware update commands (fwstatus, fwapply, etc.)
  *  - CLI built-in commands (help, etc.)
@@ -288,14 +297,26 @@ int main(void)
         .line_buffer           = line_buffer,
         .line_buffer_size      = sizeof(line_buffer),
         .prompt                = "robot> ",
-
-        /* Disable echo so Intel HEX firmware upload isn't echoed back */
-        .echo                  = false,
+        .echo                  = true,
         .enable_help           = true,
 
         /* Route incoming Intel HEX records (starting with ':') to the updater */
         .line_filter           = firmware_service_line_filter,
         .line_filter_user_data = &firmware,
+
+        .history_buffer        = history_buffer,
+        .history_buffer_size   = sizeof(history_buffer),
+        .history_entry_size    = 48,
+
+        /*
+         * A HEX record starts with ':'. Marking it raw keeps an upload from
+         * being echoed character-by-character or landing in history, without
+         * touching how it is dispatched: firmware_service_line_filter above
+         * still claims it, and the prompt stays suppressed for it exactly as
+         * before. Interactive use (echo, history) and a firmware transfer
+         * can now share this console without stepping on each other.
+         */
+        .raw_line_prefix       = ':',
     };
 
     if (cli_init(&cli, &config) != CLI_INIT_OK) {

@@ -396,6 +396,13 @@ static bool execute_line(cli_t *cli)
  * Line assembly
  * -------------------------------------------------------------------------*/
 
+/* Echo is suppressed for a line identified as raw_line_prefix content,
+   regardless of the echo config — see cli_config_t.raw_line_prefix. */
+static bool should_echo(const cli_t *cli)
+{
+    return cli->echo && !cli->line_is_raw;
+}
+
 void cli_reset_line(cli_t *cli)
 {
     if (cli == NULL) {
@@ -403,27 +410,202 @@ void cli_reset_line(cli_t *cli)
     }
     cli->line_len = 0;
     cli->parse_pos = 0;
+    cli->edit_cursor = 0;
     cli->overflow = false;
+    cli->line_is_raw = false;
+    cli->escape_state = CLI_ESCAPE_NONE;
+    cli->history_cursor = 0;
     if (cli->line != NULL && cli->line_size > 0) {
         cli->line[0] = '\0';
     }
 }
 
+/*
+ * Delete the character to the left of the cursor, shifting whatever follows
+ * it down by one. When the cursor is at the end of the line (the common
+ * case) this degenerates into the old truncate-the-tail behaviour.
+ */
 static void handle_backspace(cli_t *cli)
 {
-    if (cli->line_len == 0) {
+    if (cli->edit_cursor == 0) {
         return;
     }
+
+    const size_t tail_len = cli->line_len - cli->edit_cursor;
+    memmove(&cli->line[cli->edit_cursor - 1], &cli->line[cli->edit_cursor], tail_len);
     cli->line_len--;
+    cli->edit_cursor--;
     cli->line[cli->line_len] = '\0';
-    if (cli->echo) {
-        cli_write(cli, "\b \b");
+
+    if (should_echo(cli)) {
+        /*
+         * Step onto the erased column, rewrite the (now shifted) tail over
+         * what is still on screen, blank the stale character that rewrite
+         * left behind at the end, then walk the cursor back to where the
+         * edit actually happened.
+         */
+        cli_write(cli, "\b");
+        if (tail_len > 0) {
+            cli_write_bytes(cli, &cli->line[cli->edit_cursor], tail_len);
+        }
+        cli_write(cli, " ");
+        for (size_t i = 0; i < tail_len + 1; i++) {
+            cli_write(cli, "\b");
+        }
     }
 }
 
+/* Move the cursor one character left without changing the line. */
+static void cursor_left(cli_t *cli)
+{
+    if (cli->edit_cursor == 0) {
+        return;
+    }
+    cli->edit_cursor--;
+    if (should_echo(cli)) {
+        cli_write(cli, "\b");
+    }
+}
+
+/* Move the cursor one character right by re-echoing the character already
+   displayed there, rather than redrawing anything. */
+static void cursor_right(cli_t *cli)
+{
+    if (cli->edit_cursor >= cli->line_len) {
+        return;
+    }
+    if (should_echo(cli)) {
+        cli_write_bytes(cli, &cli->line[cli->edit_cursor], 1);
+    }
+    cli->edit_cursor++;
+}
+
+/*
+ * Insert one character at the cursor, shifting whatever follows it up by
+ * one. Typing at the end of the line (the common case) degenerates into a
+ * plain append.
+ */
+static void insert_char_at_cursor(cli_t *cli, char c)
+{
+    if (cli->line_len + 1 >= cli->line_size) {
+        cli->overflow = true;
+        return;
+    }
+
+    const size_t tail_len = cli->line_len - cli->edit_cursor;
+    if (tail_len > 0) {
+        memmove(&cli->line[cli->edit_cursor + 1], &cli->line[cli->edit_cursor], tail_len);
+    }
+    cli->line[cli->edit_cursor] = c;
+    cli->line_len++;
+
+    if (should_echo(cli)) {
+        /* Write the new character plus the shifted tail, then walk the
+           cursor back from the end of the tail to just past the insertion. */
+        cli_write_bytes(cli, &cli->line[cli->edit_cursor], tail_len + 1);
+        for (size_t i = 0; i < tail_len; i++) {
+            cli_write(cli, "\b");
+        }
+    }
+    cli->edit_cursor++;
+}
+
+/* ---------------------------------------------------------------------------
+ * History
+ * -------------------------------------------------------------------------*/
+
+static char *history_slot(cli_t *cli, size_t index)
+{
+    return &cli->history_buffer[index * cli->history_entry_size];
+}
+
+static void history_push(cli_t *cli, const char *line, size_t len)
+{
+    if (cli->history_depth == 0) {
+        return;
+    }
+    if (len >= cli->history_entry_size) {
+        len = cli->history_entry_size - 1;
+    }
+
+    char *slot = history_slot(cli, cli->history_head);
+    memcpy(slot, line, len);
+    slot[len] = '\0';
+
+    cli->history_head = (cli->history_head + 1) % cli->history_depth;
+    if (cli->history_count < cli->history_depth) {
+        cli->history_count++;
+    }
+}
+
+/* Replace the line being edited with `text`, on screen and in the buffer,
+   leaving the cursor at its end — the usual place after recalling a line. */
+static void replace_line(cli_t *cli, const char *text, size_t len)
+{
+    if (len >= cli->line_size) {
+        len = cli->line_size - 1;
+    }
+
+    if (should_echo(cli)) {
+        if (cli->edit_cursor < cli->line_len) {
+            cli_write_bytes(cli, &cli->line[cli->edit_cursor], cli->line_len - cli->edit_cursor);
+        }
+        for (size_t i = 0; i < cli->line_len; i++) {
+            cli_write(cli, "\b \b");
+        }
+        cli_write_bytes(cli, text, len);
+    }
+
+    memcpy(cli->line, text, len);
+    cli->line[len] = '\0';
+    cli->line_len = len;
+    cli->edit_cursor = len;
+}
+
+/*
+ * direction > 0 recalls an older line (up arrow); direction < 0 recalls a
+ * newer one (down arrow), eventually returning to a blank line. Browsing
+ * position resets to "not browsing" on every cli_reset_line() — i.e. after
+ * every dispatched line — so each new command starts from the most recent
+ * entry again, same as a shell.
+ */
+static void history_recall(cli_t *cli, int direction)
+{
+    if (cli->history_depth == 0 || cli->history_count == 0) {
+        return;
+    }
+
+    size_t new_cursor;
+    if (direction > 0) {
+        if (cli->history_cursor >= cli->history_count) {
+            return; /* already at the oldest entry */
+        }
+        new_cursor = cli->history_cursor + 1;
+    } else {
+        if (cli->history_cursor == 0) {
+            return; /* nothing more recent to come back to */
+        }
+        new_cursor = cli->history_cursor - 1;
+    }
+
+    if (new_cursor == 0) {
+        replace_line(cli, "", 0);
+    } else {
+        const size_t slot_index =
+            (cli->history_head + cli->history_depth - new_cursor) % cli->history_depth;
+        const char *entry = history_slot(cli, slot_index);
+        replace_line(cli, entry, strlen(entry));
+    }
+    cli->history_cursor = new_cursor;
+}
+
+/* ---------------------------------------------------------------------------
+ * Feeding characters
+ * -------------------------------------------------------------------------*/
+
 static void handle_end_of_line(cli_t *cli)
 {
-    if (cli->echo) {
+    if (should_echo(cli)) {
         cli_write(cli, "\r\n");
     }
 
@@ -432,12 +614,29 @@ static void handle_end_of_line(cli_t *cli)
         /* The line was truncated, so running it would run the wrong command. */
         cli_write(cli, "line too long\r\n");
     } else if (cli->line_len > 0) {
+        if (!cli->line_is_raw) {
+            history_push(cli, cli->line, cli->line_len);
+        }
         filtered = execute_line(cli);
     }
 
     cli_reset_line(cli);
     if (!filtered) {
         cli_write_prompt(cli);
+    }
+}
+
+/* Acts on the final byte of a recognised CSI sequence (ESC '[' <letter>).
+   Anything else recognised as a letter but not one of these four is simply
+   not a sequence this interpreter understands, and is dropped. */
+static void handle_escape_letter(cli_t *cli, char c)
+{
+    switch (c) {
+    case 'D': cursor_left(cli); break;
+    case 'C': cursor_right(cli); break;
+    case 'A': history_recall(cli, +1); break;
+    case 'B': history_recall(cli, -1); break;
+    default: break;
     }
 }
 
@@ -456,11 +655,28 @@ void cli_feed_char(cli_t *cli, char c)
 
     if (c == '\r' || c == '\n') {
         cli->last_was_cr = (c == '\r');
+        /* A line ending mid-sequence abandons it; a real arrow key never
+           contains one. */
+        cli->escape_state = CLI_ESCAPE_NONE;
         handle_end_of_line(cli);
         return;
     }
 
     cli->last_was_cr = false;
+
+    if (cli->escape_state == CLI_ESCAPE_GOT_BRACKET) {
+        cli->escape_state = CLI_ESCAPE_NONE;
+        handle_escape_letter(cli, c);
+        return;
+    }
+    if (cli->escape_state == CLI_ESCAPE_GOT_ESC) {
+        cli->escape_state = (c == '[') ? CLI_ESCAPE_GOT_BRACKET : CLI_ESCAPE_NONE;
+        return;
+    }
+    if ((unsigned char)c == 0x1B) {
+        cli->escape_state = CLI_ESCAPE_GOT_ESC;
+        return;
+    }
 
     if (c == '\b' || c == 0x7F) {
         handle_backspace(cli);
@@ -473,17 +689,11 @@ void cli_feed_char(cli_t *cli, char c)
         return;
     }
 
-    if (cli->line_len + 1 >= cli->line_size) {
-        cli->overflow = true;
-        return;
+    if (cli->line_len == 0 && cli->raw_line_prefix != '\0' && c == cli->raw_line_prefix) {
+        cli->line_is_raw = true;
     }
 
-    cli->line[cli->line_len] = c;
-    cli->line_len++;
-
-    if (cli->echo) {
-        cli_write_bytes(cli, &c, 1);
-    }
+    insert_char_at_cursor(cli, c);
 }
 
 void cli_poll(cli_t *cli)
@@ -513,6 +723,16 @@ cli_init_result_t cli_init(cli_t *cli, const cli_config_t *config)
         return CLI_INIT_ERR_INVALID_ARG;
     }
 
+    if (config->history_buffer != NULL) {
+        if (config->history_entry_size < 2 ||
+            config->history_buffer_size < config->history_entry_size) {
+            return CLI_INIT_ERR_INVALID_ARG;
+        }
+        if (!config->echo) {
+            return CLI_INIT_ERR_HISTORY_REQUIRES_ECHO;
+        }
+    }
+
     for (size_t i = 0; i < config->command_count; i++) {
         if (config->commands[i].name == NULL || config->commands[i].name[0] == '\0') {
             return CLI_INIT_ERR_INVALID_ARG;
@@ -539,11 +759,17 @@ cli_init_result_t cli_init(cli_t *cli, const cli_config_t *config)
         .stream       = config->stream,
         .line         = config->line_buffer,
         .line_size    = config->line_buffer_size,
+        .raw_line_prefix = config->raw_line_prefix,
         .prompt       = config->prompt,
         .echo         = config->echo,
         .enable_help  = config->enable_help,
         .line_filter  = config->line_filter,
         .line_filter_user_data = config->line_filter_user_data,
+        .history_buffer = config->history_buffer,
+        .history_entry_size = config->history_entry_size,
+        .history_depth = config->history_buffer != NULL
+            ? config->history_buffer_size / config->history_entry_size
+            : 0,
         .initialised  = true,
     };
 
