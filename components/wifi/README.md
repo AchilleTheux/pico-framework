@@ -117,13 +117,45 @@ settings puts its own `lwipopts.h` earlier on the include path.
 
 Classic Bluetooth SPP is implemented by the sibling `bluetooth` component.
 The `bt_console_test/with_wifi` profile builds both against one shared
-`cyw43_arch`; neither radio path has yet been exercised on hardware.
+`cyw43_arch`.
+
+## A retry can block the whole application, not just this component
+
+`wifi_poll()` calls `cyw43_arch_poll()` unconditionally, and `wifi_connect()`
+reaches `cyw43_arch_wifi_connect_async()` — which, despite the name, calls
+`cyw43_wifi_join()` **synchronously**; only the *outcome* of the join is
+reported asynchronously through `cyw43_tcpip_link_status()`. Every exchange
+with the radio underneath that goes through `cyw43_do_ioctl()`
+(`lib/cyw43-driver/src/cyw43_ll.c`), which busy-waits up to
+`CYW43_IOCTL_TIMEOUT_US` (500 ms, vendored default) per call.
+
+Measured on a Pico 2 W running `wifi_test` (2026-09-01): with the configured
+access point genuinely unreachable, the console went completely unresponsive
+— no command produced output, and a single `ping` write eventually blocked
+for over ten minutes — before recovering on its own the moment the access
+point came back. A few hundred-millisecond ioctl timeouts do not by
+themselves explain a stall that long, so something in the join retry path
+gets stuck harder than a single `CYW43_IOCTL_TIMEOUT_US` wait once the AP has
+been gone for a while; this has not been root-caused further.
+
+Because `cli_poll()` and `wifi_poll()` share one loop in every application
+here (per DESIGN_DOC.md §2.1, this component does not run its own thread or
+core), that stall reaches the console too — on a robot, exactly when losing
+the network is the thing you'd want to debug. This lives in the vendored,
+pinned `cyw43-driver`/`pico_cyw43_arch` code, not in `wifi.c`, which already
+uses the async join call as documented above. A real fix needs `wifi_poll()`
+to run somewhere the rest of the application can't be blocked by it — e.g. a
+dedicated core — which is a bigger change than this component's current
+single-threaded contract; it has not been made. Until then, do not assume the
+console stays responsive while a configured AP is unreachable.
 
 ## Status
 
-**Untested on hardware.** No radio has run this. The retry policy and credential
-checks are host-tested; association, address acquisition, RSSI and reconnection
-are not, and cannot be without an access point.
+Association, address acquisition, RSSI, and reconnection after both a
+console-driven `connect` and a power cycle (from stored credentials) have all
+run successfully on a Pico 2 W. The retry attempt counter climbs as expected
+while an access point is down. What is now confirmed *not* to hold under that
+same condition is the "never blocks" claim above — see the blocking caveat.
 
 ## Testing
 
@@ -131,5 +163,6 @@ are not, and cannot be without an access point.
   credential limits.
 * Hardware: `make BOARD=pico2_w APP=tests/wifi_test flash`, then `ssid`,
   `password`, `save`, `connect`. Credentials survive a power cycle and it
-  reconnects on its own, so the interesting test is to turn the access point off
-  and watch it come back.
+  reconnects on its own. Turning the access point off and back on is the
+  interesting test — expect the console itself to stop responding for part of
+  that window; see the blocking caveat above.

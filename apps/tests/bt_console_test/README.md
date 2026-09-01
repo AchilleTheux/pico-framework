@@ -60,12 +60,20 @@ how much had to be dropped. On the default 2 KB output buffer a few hundred line
 should come through intact; a much larger flood will start dropping, and it will
 say so rather than truncating quietly.
 
-## Expected result
+`cmd_flood` in `main.c` polls `bt_console_poll()` and sleeps 1 ms between every
+printed line for exactly this reason: `RFCOMM_EVENT_CAN_SEND_NOW` only arrives
+after a real HCI round trip with the controller, so real time has to pass
+between prints or the whole flood lands in the 2 KB buffer before BTstack ever
+gets a turn to drain it — confirmed on hardware (2026-09-01): without that
+sleep, `flood 200` delivered only 34 lines and never printed its own `done`
+summary, because the summary competed for the same already-full buffer.
+
+## Expected result (validated on a Pico 2 W, 2026-09-01)
 
 | Step | Expect |
 |------|--------|
 | USB output at boot | `radio present`, `bt_console_init: ok` |
-| scanning from a host | `pico-framework` appears |
+| scanning from a host | `pico-framework` appears — give it up to ~30s; a short scan window can legitimately miss it |
 | pairing | succeeds without a PIN prompt on a modern host |
 | opening the port | the greeting and a `bt>` prompt |
 | `help` | the full command list, uninterrupted |
@@ -81,7 +89,7 @@ say so rather than truncating quietly.
 | `radio none on this board` | not a W board |
 | `bt_console_init: bluetooth stack would not start` | BTstack refused; check the USB output for its own log lines |
 | never appears when scanning | `discoverable` is false, or the host is caching an old scan. Try `scan off` then `scan on` |
-| pairs but offers no serial port | the SDP record is not being read as one. This is the part most likely to be wrong, since it has never been tested |
+| pairs but offers no serial port | the SDP record is not being read as one — this has been validated once (Linux, 2026-09-01) but not against every host OS |
 | port opens but nothing arrives | `RFCOMM_EVENT_CAN_SEND_NOW` is not reaching the handler, so nothing is ever flushed |
 | output arrives with gaps | dropped bytes; `btstatus` will say so and the buffer is too small |
 | output arrives out of order | a genuine bug in the flow control, and worth reporting in detail — the host tests cover this and would need to have missed something |

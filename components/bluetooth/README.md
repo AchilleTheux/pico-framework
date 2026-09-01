@@ -139,13 +139,19 @@ above this component, and there is not one yet.
 
 ## Status
 
-**Untested on hardware.** No radio has run this, and nothing has been paired.
+Paired and exercised on a Pico 2 W against a Linux host (2026-09-01): Secure
+Simple Pairing "just works" with no PIN prompt, the SDP record is read
+correctly (the host resolves the Serial Port Profile UUID and offers a serial
+port), `RFCOMM_EVENT_CAN_SEND_NOW` arrives and drains the outgoing buffer as
+expected, and a departed peer's leftover buffered text does not leak into the
+next session. `bt_console.c`/`bt_stream.c` themselves needed no changes.
 
-The flow control is host-tested and is the part most likely to be subtly wrong;
-what is unverified is everything around it — the SDP record a host reads to
-decide this is a serial port, the pairing exchange, and whether
-`RFCOMM_EVENT_CAN_SEND_NOW` arrives when this code expects it. Those are exactly
-what a first pairing would exercise.
+The bug that first appearance found was one level up, in the test
+application: see `apps/tests/bt_console_test/README.md`'s note on `flood`
+originally dropping nearly everything because nothing let real time pass for
+an HCI round trip between prints. Fixed there, not here — this component's
+flow control did exactly what `bt_stream_on_can_send`'s contract says once
+given the chance to run.
 
 ## Testing
 

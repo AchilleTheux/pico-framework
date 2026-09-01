@@ -59,6 +59,13 @@ happens next:
 Step 3 is the one worth being patient for: a component that retries every
 100 ms forever floods the air, and one that gives up leaves a robot offline.
 
+**During step 3, expect the console itself to stop responding for stretches of
+the outage** — measured over ten minutes in one run. That is a real limitation
+of the underlying `cyw43_arch_poll()`/`cyw43-driver` call chain, not a hang
+specific to this test; see [`wifi`'s README](../../../components/wifi/README.md#a-retry-can-block-the-whole-application-not-just-this-component).
+It recovers on its own once the access point is reachable again, so it is
+worth waiting out rather than resetting the board.
+
 ## Expected result
 
 | Step | Expect |
@@ -68,7 +75,7 @@ Step 3 is the one worth being patient for: a component that retries every
 | `connect` with no ssid | `credentials: no ssid` |
 | `connect` | `connecting`, then `connected as <address>` within a few seconds |
 | `wifistatus` when connected | an address and an RSSI, typically −40 to −70 dBm |
-| access point off | `waiting to retry`, attempts climbing |
+| access point off | `waiting to retry`, attempts climbing; console may stop responding for part of this |
 | access point back | `connected` again, attempts back to 0 |
 | power cycle | associates without a console |
 

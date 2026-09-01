@@ -46,9 +46,17 @@ Pure logic is covered by 18 sanitizer-enabled host executables. Hardware-facing
 groups have manual applications under `apps/tests/`; a successful cross-build
 is recorded separately from a physical result. The RP2040-Zero has validated
 USB stdio and CLI, its onboard WS2812, bare-pin PIO UART loopback, persistent
-configuration on flash, and an empty I2C bus. CAN, real I2C devices, smart
-servos, and radio operation still await the hardware listed by their test
-applications. The serial firmware installer has completed an end-to-end
+configuration on flash, and an empty I2C bus. A Pico 2 W has validated both
+radio components: `wifi` (association, address acquisition, RSSI, and
+reconnection both from a console `connect` and from stored credentials after
+a power cycle — see [`wifi`'s README](components/wifi/README.md) for a real
+console-unresponsiveness caveat found during that validation) and
+`bluetooth` (pairing with no PIN prompt, the SDP serial-port record, and
+RFCOMM flow control under a deliberate flood — that validation found and
+fixed a real bug in the test application itself, not the component; see
+[`bt_console_test`'s README](apps/tests/bt_console_test/README.md)). CAN,
+real I2C devices, and smart servos still await the hardware listed by their
+test applications. The serial firmware installer has completed an end-to-end
 stage, verify, in-place install, automatic reboot, and second transfer over a
 hardware UART on the RP2040-Zero.
 
@@ -326,8 +334,10 @@ Every application builds warning-free with `-Werror` for:
 The initial roadmap in DESIGN_DOC.md section 24 is complete. Further work is
 driven by actual project needs rather than another architecture phase:
 
-- validate CAN, smart servos, VL53L0X, WiFi, Bluetooth, and firmware install on
-  the required hardware;
+- validate CAN, smart servos, and VL53L0X on the required hardware;
+- decide how to handle the `wifi` component's console-blocking caveat
+  (components/wifi/README.md) — document-only for now, or a structural fix
+  such as polling it from a dedicated core;
 - add TCP/UDP, PWM, and persistent flash logging when an application needs them;
 - exercise the framework in a complete robot application rather than only the
   minimal image and component benches.

@@ -59,6 +59,18 @@ static int cmd_flood(cli_t *c, void *user_data)
     for (uint32_t i = 0; i < lines; i++) {
         cli_printf(c, "line %lu of %lu: the quick brown fox jumps over the lazy dog\r\n",
                    (unsigned long)(i + 1), (unsigned long)lines);
+
+        /*
+         * Without this, the whole loop runs before BTstack ever gets a turn to
+         * drain the RFCOMM link, so it all lands in the 2 KB buffer at once and
+         * almost none of it survives — not the flow-control case this command
+         * exists to exercise. Polling alone is not enough: RFCOMM_EVENT_CAN_SEND_NOW
+         * only arrives after a real HCI round trip with the controller, so this
+         * also has to let real time pass, at the same 1 ms cadence as the main
+         * loop, for that round trip to land between prints.
+         */
+        bt_console_poll(&console);
+        sleep_ms(1);
     }
 
     /*
