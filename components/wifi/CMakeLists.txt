@@ -28,6 +28,8 @@ target_link_libraries(pico_framework_wifi PUBLIC
 
 # The radio libraries only exist for boards that have one.
 if (PICO_CYW43_SUPPORTED)
+    pico_framework_apply_cyw43_wait_workaround(pico_framework_wifi)
+
     # Poll mode rather than threadsafe_background: lwIP runs only when
     # wifi_poll() is called, which keeps the radio on the same footing as every
     # other component here and out of interrupt context. The cost is that a

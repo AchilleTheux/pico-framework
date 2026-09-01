@@ -59,16 +59,17 @@ happens next:
 Step 3 is the one worth being patient for: a component that retries every
 100 ms forever floods the air, and one that gives up leaves a robot offline.
 
-**On Pico SDK 2.3.0, expect the console itself to stop responding for
-stretches of step 3** — measured over ten minutes in one run. This is a
-reported RP2350 timed-wait regression in that SDK release, not a hang
-specific to this test or a design flaw in `wifi.c`; the same image rebuilt
-against SDK 2.2.0, with no other change, stayed continuously responsive
-through the identical test. See [`wifi`'s
+**With an unmodified Pico SDK 2.3.0 CYW43 configuration, the console can stop
+responding for stretches of step 3** — measured over ten minutes in one run.
+This is a reported RP2350 timed-wait regression in that SDK release, not a
+hang specific to this test or a design flaw in `wifi.c`; the same image
+rebuilt against SDK 2.2.0, with no other change, stayed continuously
+responsive through the identical test. The framework now overrides the two
+affected CYW43 waits with bounded busy waits on RP2350 + SDK 2.3.0, so this
+test also validates that workaround: the console must remain responsive for
+the whole outage. See [`wifi`'s
 README](../../../components/wifi/README.md#a-retry-can-block-the-whole-application-not-just-this-component)
-for the confirmed call chain and the upstream issue links. It recovers on its
-own once the access point is reachable again, so on 2.3.0 it is worth waiting
-out rather than resetting the board.
+for the confirmed call chain and the upstream issue links.
 
 ## Expected result
 

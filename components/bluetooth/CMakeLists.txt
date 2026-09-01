@@ -28,6 +28,8 @@ target_link_libraries(pico_framework_bluetooth PUBLIC
 )
 
 if (PICO_CYW43_SUPPORTED)
+    pico_framework_apply_cyw43_wait_workaround(pico_framework_bluetooth)
+
     # btstack_config.h in include/ is PUBLIC, so linking this component is
     # enough — BTstack will not compile without one and the SDK does not
     # provide it, the same arrangement as lwIP's lwipopts.h.

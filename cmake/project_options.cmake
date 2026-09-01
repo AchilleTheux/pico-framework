@@ -57,6 +57,20 @@ function(pico_framework_set_warnings)
     endforeach()
 endfunction()
 
+# Pico SDK 2.3.0 can lose the hardware-alarm wakeup used by the CYW43
+# driver's short semaphore waits on RP2350.  Keep the workaround attached to
+# CYW43 consumers, rather than changing timing globally or patching the SDK
+# submodule.  The version guard makes it fall away when the SDK is updated.
+function(pico_framework_apply_cyw43_wait_workaround target)
+    if(PICO_PLATFORM MATCHES "^rp2350" AND
+       PICO_SDK_VERSION_STRING VERSION_EQUAL "2.3.0")
+        target_include_directories(${target} PUBLIC
+            "${PICO_FRAMEWORK_ROOT}/cmake/include")
+        target_compile_definitions(${target} PUBLIC
+            CYW43_CONFIG_FILE=\"pico_framework_cyw43_config.h\")
+    endif()
+endfunction()
+
 function(pico_framework_report_configuration)
     message(STATUS "")
     message(STATUS "pico-framework configuration")

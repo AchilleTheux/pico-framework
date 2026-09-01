@@ -164,23 +164,33 @@ normally the whole way. The stall did not reproduce at all on 2.2.0.
 This is a vendored SDK regression, not a design flaw in `wifi.c` — which
 already uses the async join call as intended — nor is it evidence that
 `wifi_poll()` needs its own core; that was this document's original
-(incorrect) conclusion before the SDK version was implicated. It has been
-left as a documented caveat rather than fixed: pinning the project to 2.2.0
-would be a project-wide change (every board and component, not just this
-one) and hasn't been decided on, and a narrower fix — overriding just
-`CYW43_DO_IOCTL_WAIT`/`CYW43_SDPCM_SEND_COMMON_WAIT` to a bounded
-`busy_wait_us()` via cyw43-driver's `CYW43_CONFIG_FILE` override hook,
-keeping 2.3.0 otherwise — was identified as viable but not attempted. Until
-one of those happens, do not assume the console stays responsive while a
-configured AP is unreachable, on this SDK version.
+(incorrect) conclusion before the SDK version was implicated.
+
+The framework keeps SDK 2.3.0 and applies the narrow workaround through
+cyw43-driver's supported `CYW43_CONFIG_FILE` hook. On RP2350 + SDK 2.3.0 only,
+[`pico_framework_cyw43_config.h`](../../cmake/include/pico_framework_cyw43_config.h)
+replaces `CYW43_DO_IOCTL_WAIT` and `CYW43_SDPCM_SEND_COMMON_WAIT` with bounded
+1 ms `busy_wait_us_32()` calls. This changes no radio protocol or timeout: it
+only avoids the defective hardware-alarm sleep while an ioctl already owns
+the caller. Bluetooth receives the same configuration because it shares the
+CYW43 driver. The CMake version guard stops selecting the override once the
+SDK pin advances beyond 2.3.0, so the workaround cannot silently outlive the
+upstream regression.
+
+The 2.2.0 A/B test confirms the diagnosis; the new 2.3.0 workaround still
+needs the same AP-off hardware test before it is considered validated. Even
+after that, CYW43 command submission remains synchronous and may consume up
+to its bounded driver timeout, so `wifi_poll()` is cooperative rather than a
+hard real-time call.
 
 ## Status
 
 Association, address acquisition, RSSI, and reconnection after both a
 console-driven `connect` and a power cycle (from stored credentials) have all
 run successfully on a Pico 2 W. The retry attempt counter climbs as expected
-while an access point is down. What is now confirmed *not* to hold under that
-same condition is the "never blocks" claim above — see the blocking caveat.
+while an access point is down. The AP-off responsiveness test has passed with
+SDK 2.2.0 and exposed the SDK 2.3.0 regression; it still has to be repeated on
+SDK 2.3.0 with the framework workaround enabled.
 
 ## Testing
 
@@ -189,5 +199,5 @@ same condition is the "never blocks" claim above — see the blocking caveat.
 * Hardware: `make BOARD=pico2_w APP=tests/wifi_test flash`, then `ssid`,
   `password`, `save`, `connect`. Credentials survive a power cycle and it
   reconnects on its own. Turning the access point off and back on is the
-  interesting test — expect the console itself to stop responding for part of
-  that window; see the blocking caveat above.
+  interesting test: with the framework workaround enabled, `ping` and
+  `wifistatus` must remain responsive throughout the outage and reconnection.
