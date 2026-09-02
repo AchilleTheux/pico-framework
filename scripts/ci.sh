@@ -54,6 +54,7 @@ MATRIX=(
     # A custom board header from boards/, to keep the board mechanism covered.
     "bras_attrape_caisse:minimal:default"
     "bras_attrape_caisse:tests/firmware_update_test:default"
+    "rp2350_can:minimal:default"
     "pico2:tests/firmware_update_test:write_flash"
     "pico2_w:tests/bt_console_test:default"
     # Both halves of the radio in one image, sharing one cyw43 arch.

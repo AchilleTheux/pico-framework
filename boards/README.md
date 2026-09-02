@@ -18,6 +18,7 @@ Custom headers usually start from an SDK board header in
 |---------|----------|------------|
 | `rp2040_zero` | Waveshare RP2040-Zero, 2 MiB flash, onboard WS2812 on GPIO16 | thin alias of the Pico SDK's `waveshare_rp2040_zero` |
 | `bras_attrape_caisse` | Eurobot 2026 actuator board | project schematic-derived header |
+| `rp2350_can` | Waveshare RP2350-CAN, onboard XL2515 (MCP2515-compatible) SPI CAN controller, LED on GPIO25 | project header, written from scratch |
 
 The alias deliberately includes the SDK header rather than copying it. SDK
 updates therefore remain the single source of truth for the RP2040-Zero's
