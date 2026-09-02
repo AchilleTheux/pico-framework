@@ -31,7 +31,9 @@ set(PICO_FRAMEWORK_COMPONENTS
     servo_bus
     ax12
     feetech
+    can_frame
     can
+    mcp2515
 )
 
 function(pico_framework_add_components)

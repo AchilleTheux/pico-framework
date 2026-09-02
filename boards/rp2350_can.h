@@ -2,9 +2,10 @@
  * Board header for the Waveshare RP2350-CAN.
  *
  * RP2350A module with an onboard XL2515 (MCP2515-compatible) SPI CAN
- * controller and a status LED. Flash size and stage2 boot config follow the
- * common RP2350A Pico-footprint default (see boards/pico2.h in the SDK);
- * adjust PICO_FLASH_SIZE_BYTES if the board's actual flash chip differs.
+ * controller and a status LED. Confirmed against
+ * docs/RP2350-CAN-Schematic.pdf: a 32 Mbit (4 MiB) P25Q32SH-UXH-IR flash
+ * chip, command-compatible with the generic W25Q080 stage2 boot config
+ * below (same as boards/pico2.h in the SDK uses for its own flash).
  */
 
 // -----------------------------------------------------
@@ -77,6 +78,12 @@ pico_board_cmake_set_default(PICO_FLASH_SIZE_BYTES, (4 * 1024 * 1024))
 
 #ifndef RP2350_CAN_PIN_XL2515_INT
 #define RP2350_CAN_PIN_XL2515_INT 8
+#endif
+
+// Confirmed against docs/RP2350-CAN-Schematic.pdf: Y1, the XL2515's crystal,
+// is 16 MHz (not the 8 MHz common on smaller MCP2515 breakout modules).
+#ifndef RP2350_CAN_XL2515_OSCILLATOR_HZ
+#define RP2350_CAN_XL2515_OSCILLATOR_HZ 16000000
 #endif
 
 #endif // _BOARDS_RP2350_CAN_H

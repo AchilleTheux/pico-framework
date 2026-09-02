@@ -4,6 +4,12 @@ Classic CAN 2.0B for RP2040 and RP2350, implemented with
 [can2040](../../lib/can2040/README.md) on one PIO block. Applications link
 `pico_framework::can` and include `can.h`.
 
+The frame, filter, and queue types (`can_message_t`, `can_filter_t`,
+`can_queue_t`) live in [`can_frame`](../can_frame/), shared with the SPI-based
+[`mcp2515`](../mcp2515/) controller driver. `can.h` pulls it in transitively;
+applications only ever link `pico_framework::can` or `pico_framework::mcp2515`
+directly.
+
 This is a controller driver, not a transceiver. The MCU pins must connect to a
 3.3 V-compatible CAN transceiver such as an SN65HVD230. The transceiver connects
 to CANH/CANL and the physical bus still needs its normal termination.

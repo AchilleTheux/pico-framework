@@ -25,6 +25,11 @@ updates therefore remain the single source of truth for the RP2040-Zero's
 default UART (GPIO0/1), I2C (GPIO6/7), SPI (GPIO10..13), flash configuration,
 and onboard WS2812 pin.
 
+`rp2350_can`'s flash chip and its XL2515's oscillator frequency
+(`RP2350_CAN_XL2515_OSCILLATOR_HZ`) are confirmed against
+`docs/RP2350-CAN-Schematic.pdf`: a 32 Mbit P25Q32SH-UXH-IR flash and a 16 MHz
+crystal (Y1) on the CAN controller.
+
 ## Hardware validation
 
 The `rp2040_zero` target was exercised on a Waveshare RP2040-Zero over USB CDC
