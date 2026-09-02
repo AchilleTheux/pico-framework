@@ -104,6 +104,24 @@ size_t ring_buffer_read(ring_buffer_t *rb, void *data, size_t len);
 bool ring_buffer_peek(const ring_buffer_t *rb, uint8_t *byte);
 
 /*
+ * Like read, but leaves the bytes in place: copies up to `len` bytes from the
+ * front and returns how many, without moving `tail`.
+ *
+ * For a consumer that has to hand the bytes to something which may take fewer
+ * than it was offered. Reading them out first and pushing the remainder back
+ * is not equivalent — the remainder would go behind whatever else is queued,
+ * turning a partial acceptance into reordered output. Peek, offer, then
+ * ring_buffer_discard() exactly what was taken.
+ */
+size_t ring_buffer_peek_bytes(const ring_buffer_t *rb, void *data, size_t len);
+
+/*
+ * Drop up to `len` bytes from the front without copying them, and return how
+ * many were actually dropped. The consumer half of ring_buffer_peek_bytes().
+ */
+size_t ring_buffer_discard(ring_buffer_t *rb, size_t len);
+
+/*
  * Discard everything currently buffered.
  *
  * Consumer-side only: it moves `tail`. Calling it from the producer while a

@@ -135,3 +135,33 @@ bool mcp2515_compute_bit_timing(uint32_t oscillator_hz, uint32_t bitrate,
     timing->cnf3 = (uint8_t)(phseg2 - 1u);
     return true;
 }
+
+/* Datasheet section 8.1. */
+#define RESET_OSCILLATOR_CYCLES 128u
+
+/*
+ * Neither bound is a controller limit — the fastest part in the family takes
+ * 40 MHz — they only keep a nonsense argument out of the arithmetic below.
+ * Clamping low gives the longest wait rather than none; clamping high keeps
+ * the rounding-up numerator inside 32 bits.
+ */
+#define RESET_MIN_OSCILLATOR_HZ 1000000u
+#define RESET_MAX_OSCILLATOR_HZ 100000000u
+
+uint32_t mcp2515_reset_delay_us(uint32_t oscillator_hz)
+{
+    uint32_t hz = oscillator_hz;
+    if (hz < RESET_MIN_OSCILLATOR_HZ) {
+        hz = RESET_MIN_OSCILLATOR_HZ;
+    } else if (hz > RESET_MAX_OSCILLATOR_HZ) {
+        hz = RESET_MAX_OSCILLATOR_HZ;
+    }
+
+    /* Cycles to microseconds, rounded up: (128 * 1e6 + hz - 1) / hz. With hz
+       bounded above, the numerator is at most 2.28e8 and stays in 32 bits. */
+    const uint32_t exact = (RESET_OSCILLATOR_CYCLES * 1000000u + hz - 1u) / hz;
+
+    /* Doubled: a few microseconds once at startup, against a resonator that
+       starts slowly being reported as no controller at all. */
+    return exact * 2u;
+}

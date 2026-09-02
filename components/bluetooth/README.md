@@ -46,7 +46,7 @@ Decisions it makes, all tested:
 |---|---|
 | Writes are buffered until the link offers to send | there is no alternative; the send would simply fail |
 | Several writes coalesce into one packet | RFCOMM has real per-packet overhead and a console writes in small pieces |
-| Bytes the link refuses stay queued | anything dropped there would be a hole in the middle of a reply |
+| Bytes the link refuses stay queued, **in place** | anything dropped there would be a hole in the middle of a reply, and anything requeued would be a transposition — see below |
 | **A full buffer drops the tail, not the head** | losing the start of a reply loses the context that made it mean anything; losing the end merely truncates it |
 | Dropped bytes are counted | a console that silently truncates is worse than one that admits it, and a growing count means the buffer is too small for what the firmware prints |
 | Nothing is buffered with no peer attached | it would fill with output nobody asked for and leave no room for the next peer's reply |
@@ -54,6 +54,24 @@ Decisions it makes, all tested:
 
 A write also *asks* for a send opportunity rather than waiting for the next
 poll, so a reply does not sit in a buffer until the main loop comes round.
+
+### A partial send is not a requeue
+
+`bt_stream_send_fn` returns how many bytes the link took, which may be fewer
+than it was offered. The refused suffix cannot simply be written back: a ring
+buffer has no push-front, so it would land *behind* whatever was still queued
+after the packet. Accepting `ab` out of an `abcd` packet, with `efghij` still
+waiting, would put `abefghijcd` on the wire — not a truncated reply but a
+transposed one, which reads as corruption rather than as loss.
+
+So nothing is dequeued until the link has said how much it took:
+`ring_buffer_peek_bytes()` copies the packet out without consuming it, and
+`ring_buffer_discard()` then drops exactly the accepted prefix. A count larger
+than the packet is clamped, so a link that overstates cannot pull unsent bytes
+out with it.
+
+`bt_console.c`'s `rfcomm_send` is all-or-nothing, so this path is not reachable
+through it today; the contract is the API's, not that one caller's.
 
 ## Usage
 
@@ -153,9 +171,17 @@ an HCI round trip between prints. Fixed there, not here — this component's
 flow control did exactly what `bt_stream_on_can_send`'s contract says once
 given the chance to run.
 
+Re-validated on the same board (2026-09-03) after the partial-send fix above:
+`flood 200` delivered all 200 lines in order with nothing dropped, and
+`flood 500` — past what the 2 KB buffer holds — delivered 472 of 500, every
+line intact, line numbers strictly increasing, and the 1673 missing bytes
+reported by `btstatus` rather than swallowed. Dropped tail, never reordered,
+which is what the table above promises.
+
 ## Testing
 
-* Host: `make test` covers the buffering, the flow control, full buffers in both
+* Host: `make test` covers the buffering, the flow control, a partially
+  accepted packet with more still queued behind it, full buffers in both
   directions, and a long session that wraps the ring buffers many times.
 * Hardware: `make BOARD=pico2_w APP=tests/bt_console_test flash`. See that
   application's README for pairing and what to try.

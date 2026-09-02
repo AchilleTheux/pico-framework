@@ -100,9 +100,15 @@ bool bt_stream_on_can_send(bt_stream_t *stream, uint16_t mtu)
         room = pending;
     }
 
-    /* Peeked rather than consumed: the link may accept fewer bytes than
-       offered, and anything it did not take has to stay queued. */
-    const size_t staged = ring_buffer_read(&stream->outgoing, packet, room);
+    /*
+     * Peeked rather than consumed. The link may accept fewer bytes than it was
+     * offered, and there is no way to put the rest back at the front: writing
+     * it again would queue it behind the bytes still waiting after this
+     * packet, so a partially accepted `abcd` out of a queued `abcdefghij`
+     * would go out as `abefghijcd`. Nothing is dequeued until the link has
+     * said how much it took.
+     */
+    const size_t staged = ring_buffer_peek_bytes(&stream->outgoing, packet, room);
     if (staged == 0) {
         return false;
     }
@@ -110,20 +116,10 @@ bool bt_stream_on_can_send(bt_stream_t *stream, uint16_t mtu)
     const uint16_t accepted = stream->send(stream->send_ctx, packet, (uint16_t)staged);
     stream->may_send = false;
 
-    if (accepted < staged) {
-        /*
-         * Put back what was refused, at the front. ring_buffer has no
-         * push-front, so the remainder is written after whatever arrived in the
-         * meantime — which cannot happen here, because writes and this flush
-         * both run from the same context.
-         */
-        const size_t remaining = staged - accepted;
-        const size_t requeued = ring_buffer_write(&stream->outgoing,
-                                                  &packet[accepted], remaining);
-        if (requeued < remaining) {
-            stream->dropped_outgoing += (uint32_t)(remaining - requeued);
-        }
-    }
+    /* A link that claims more than it was offered would otherwise consume
+       bytes it never saw. */
+    const size_t taken = (accepted < staged) ? (size_t)accepted : staged;
+    ring_buffer_discard(&stream->outgoing, taken);
 
     return ring_buffer_count(&stream->outgoing) > 0;
 }

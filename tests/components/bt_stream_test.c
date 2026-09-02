@@ -21,6 +21,7 @@ static struct {
     uint8_t sent[4096];
     size_t sent_length;
     uint16_t accept_limit;   /* 0 means accept everything offered */
+    uint16_t overstate_by;   /* claim this many bytes more than were taken */
     unsigned calls;
 } g_link;
 
@@ -39,7 +40,7 @@ static uint16_t fake_send(void *ctx, const uint8_t *data, uint16_t length)
 
     memcpy(&g_link.sent[g_link.sent_length], data, accepted);
     g_link.sent_length += accepted;
-    return accepted;
+    return (uint16_t)(accepted + g_link.overstate_by);
 }
 
 static uint8_t incoming_storage[64];
@@ -157,6 +158,70 @@ TEST(bytes_the_link_refuses_stay_queued)
 
     CHECK_EQ_STR(sent_text(), "abcdefghij");
     CHECK_EQ_INT(stream.dropped_outgoing, 0);
+}
+
+TEST(a_partly_accepted_packet_does_not_reorder_what_follows)
+{
+    /*
+     * The case the previous test misses: the MTU is smaller than what is
+     * queued, so bytes remain behind the packet being offered. Requeueing the
+     * refused suffix would put it after those, and `abcdefghij` would leave as
+     * `abefghijcd` — a console reply with its middle transposed, which reads
+     * as corruption rather than as loss.
+     */
+    setup();
+    g_link.accept_limit = 2;
+
+    bt_stream_write(&stream, "abcdefghij", 10);
+
+    unsigned offers = 0;
+    while (bt_stream_has_output(&stream) && offers < 40) {
+        bt_stream_on_can_send(&stream, 4);   /* MTU below the 10 queued */
+        offers++;
+    }
+
+    CHECK_EQ_STR(sent_text(), "abcdefghij");
+    CHECK_EQ_INT(stream.dropped_outgoing, 0);
+}
+
+TEST(a_partial_send_leaves_the_refused_bytes_at_the_front)
+{
+    /* The single step in isolation, so a failure says which half is wrong. */
+    setup();
+    g_link.accept_limit = 2;
+
+    bt_stream_write(&stream, "abcdefghij", 10);
+    CHECK(bt_stream_on_can_send(&stream, 4));
+    CHECK_EQ_STR(sent_text(), "ab");
+
+    /* Eight left, and "cd" must still be the next two. */
+    g_link.accept_limit = 0;
+    g_link.sent_length = 0;
+    bt_stream_on_can_send(&stream, 4);
+    CHECK_EQ_STR(sent_text(), "cdef");
+}
+
+TEST(a_link_claiming_more_than_it_was_offered_consumes_only_the_offer)
+{
+    /*
+     * Defensive. The count comes back from BTstack, and a send reporting more
+     * than the packet it was handed must not drag the bytes queued behind that
+     * packet out of the buffer unsent.
+     */
+    setup();
+    g_link.overstate_by = 100;
+    bt_stream_write(&stream, "abcdefgh", 8);
+
+    bt_stream_on_can_send(&stream, 3);
+    CHECK_EQ_STR(sent_text(), "abc");
+
+    /* Five left, not zero, and still in order. */
+    g_link.overstate_by = 0;
+    g_link.sent_length = 0;
+    while (bt_stream_has_output(&stream)) {
+        bt_stream_on_can_send(&stream, 8);
+    }
+    CHECK_EQ_STR(sent_text(), "defgh");
 }
 
 TEST(a_link_that_takes_nothing_loses_nothing)
@@ -403,6 +468,9 @@ TEST_MAIN(
     RUN(output_longer_than_the_mtu_takes_several_offers);
     RUN(an_offer_reports_whether_more_remains);
     RUN(bytes_the_link_refuses_stay_queued);
+    RUN(a_partly_accepted_packet_does_not_reorder_what_follows);
+    RUN(a_partial_send_leaves_the_refused_bytes_at_the_front);
+    RUN(a_link_claiming_more_than_it_was_offered_consumes_only_the_offer);
     RUN(a_link_that_takes_nothing_loses_nothing);
 
     RUN(a_full_output_buffer_drops_the_tail_not_the_head);

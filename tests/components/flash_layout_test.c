@@ -308,7 +308,83 @@ TEST(a_staging_image_always_fits_in_the_application_region)
     }
 }
 
+/* ---------------------------------------------------------------------------
+ * The constant-expression form
+ * -------------------------------------------------------------------------*/
+
+TEST(flash_layout_matches_macros)
+{
+    /*
+     * The build reserves the application region in the linker, and a linker
+     * script cannot call flash_layout_compute() — so the component's
+     * CMakeLists repeats the division, and flash_layout.h repeats it again as
+     * constant expressions for a _Static_assert to check CMake against.
+     *
+     * Three statements of the same arithmetic. This test is what stops them
+     * drifting: it holds the macro form against the function for every chip
+     * size and reservation the framework can be configured for. A divergence
+     * means the linker is enforcing a boundary that the runtime bound checks
+     * are not written against, which is precisely the failure the enforcement
+     * exists to prevent.
+     */
+    const uint32_t sizes[] = {
+        512u * 1024u,
+        1024u * 1024u,
+        2048u * 1024u,
+        4096u * 1024u,
+        8192u * 1024u,
+        16384u * 1024u,
+        /* Not a power of two, and an odd sector count once data is taken out,
+           so the "spare sector goes to data" rule is exercised too. */
+        3u * 1024u * 1024u + FLASH_LAYOUT_SECTOR_SIZE,
+    };
+    const uint32_t reservations[] = { 2u, 8u, 32u, 64u, 129u };
+
+    for (size_t i = 0; i < count_of_(sizes); i++) {
+        for (size_t j = 0; j < count_of_(reservations); j++) {
+            const uint32_t size = sizes[i];
+            const uint32_t data = reservations[j];
+
+            flash_layout_t layout;
+            if (flash_layout_compute(size, data, &layout) != FLASH_LAYOUT_OK) {
+                continue; /* the macros say nothing about layouts that fail */
+            }
+
+            const uint32_t from_macro = FLASH_LAYOUT_IMAGE_SIZE(size, data);
+            if (from_macro != layout.application.size) {
+                printf("    %u bytes, %u data sectors: macro says %u, "
+                       "flash_layout_compute() says %u\n",
+                       (unsigned)size, (unsigned)data, (unsigned)from_macro,
+                       (unsigned)layout.application.size);
+                CHECK(false);
+            }
+
+            /* Staging is the same size by construction; the linker limit is
+               only safe because that holds. */
+            CHECK_EQ_U32(from_macro, layout.staging.size);
+        }
+    }
+}
+
+TEST(this_builds_application_size_is_the_default_layout)
+{
+    /* FLASH_LAYOUT_APPLICATION_SIZE is what the linker script is generated
+       from, so it has to be the region flash_layout_get() reports. */
+    const flash_layout_t *layout = flash_layout_get();
+
+    CHECK_EQ_U32(FLASH_LAYOUT_APPLICATION_SIZE, layout->application.size);
+    CHECK_EQ_U32(FLASH_LAYOUT_APPLICATION_SIZE, layout->staging.size);
+    CHECK_EQ_U32(layout->application.offset, 0);
+
+    /* And the boundary the linker is being given really is where staging
+       begins — the number that makes an over-long image dangerous. */
+    CHECK_EQ_U32(FLASH_LAYOUT_APPLICATION_SIZE, layout->staging.offset);
+}
+
 TEST_MAIN(
+    RUN(flash_layout_matches_macros);
+    RUN(this_builds_application_size_is_the_default_layout);
+
     RUN(the_regions_do_not_overlap_and_cover_the_chip);
     RUN(application_and_staging_are_the_same_size);
     RUN(an_odd_sector_over_goes_to_data_not_to_an_image);

@@ -79,7 +79,21 @@ i2c_device_result_t i2c_device_init(i2c_device_t *device, i2c_inst_t *i2c,
                                     uint8_t address, i2c_endianness_t endianness,
                                     uint32_t timeout_us);
 
-/* Does anything answer at this address? */
+/*
+ * Does anything answer at this address?
+ *
+ * **This reads a byte from the device and discards it.** An address-only probe
+ * is not possible on this hardware — the I2C block carries the start and stop
+ * flags in the same FIFO word as a data item, so the SDK rejects a zero-length
+ * transfer — and that discarded byte is a real transaction: it consumes an
+ * entry from a read FIFO, advances an auto-incrementing register pointer, and
+ * clears a clear-on-read status register.
+ *
+ * Fine for finding out what is on an idle bus, which is what `scan` in
+ * apps/tests/i2c_test uses it for. Not fine against a device that is mid-
+ * conversion or holding data to be read; there, read a register known to be
+ * harmless for that particular device and check the result instead.
+ */
 bool i2c_device_present(const i2c_device_t *device);
 
 /* ---------------------------------------------------------------------------
@@ -96,6 +110,11 @@ i2c_device_result_t i2c_device_read(const i2c_device_t *device,
  * Write then read without releasing the bus between, which is what a register
  * read requires: a stop condition in the middle would let another master in
  * and lose the address that was just set.
+ *
+ * `rx_len` of 0 (with `rx` NULL or not) is a plain write: the bus is released
+ * normally afterwards, since there is no following read for it to be held
+ * open for. `rx` NULL with a non-zero `rx_len` is a caller mistake and returns
+ * I2C_DEVICE_ERR_INVALID_ARG without touching the bus.
  */
 i2c_device_result_t i2c_device_write_read(const i2c_device_t *device,
                                           const void *tx, size_t tx_len,

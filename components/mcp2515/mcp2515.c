@@ -4,6 +4,7 @@
 #include "pico/time.h"
 
 #include "mcp2515.h"
+#include "mcp2515_filters.h"
 #include "mcp2515_frame.h"
 #include "mcp2515_timing.h"
 
@@ -63,7 +64,7 @@
 #define STATUS_TXREQ2 (1u << 6)
 
 static const uint8_t TXREQ_BIT[3] = {STATUS_TXREQ0, STATUS_TXREQ1, STATUS_TXREQ2};
-static const uint8_t FILTER_REG[MCP2515_MAX_FILTERS] = {
+static const uint8_t FILTER_REG[MCP2515_FILTER_SLOTS] = {
     REG_RXF0SIDH, REG_RXF1SIDH, REG_RXF2SIDH, REG_RXF3SIDH, REG_RXF4SIDH, REG_RXF5SIDH,
 };
 
@@ -81,14 +82,16 @@ static inline void cs_deselect(mcp2515_bus_t *bus)
     gpio_put(bus->cs_pin, 1);
 }
 
-static void mcp2515_reset(mcp2515_bus_t *bus)
+static void mcp2515_reset(mcp2515_bus_t *bus, uint32_t oscillator_hz)
 {
     const uint8_t cmd = CMD_RESET;
     cs_select(bus);
     spi_write_blocking(bus->spi, &cmd, 1);
     cs_deselect(bus);
-    /* Datasheet: allow the oscillator to stabilise after reset. */
-    sleep_us(10);
+
+    /* Measured in the controller's clock rather than ours, so it depends on
+       the board's crystal; see mcp2515_reset_delay_us(). */
+    sleep_us(mcp2515_reset_delay_us(oscillator_hz));
 }
 
 static void write_register(mcp2515_bus_t *bus, uint8_t reg, uint8_t value)
@@ -175,55 +178,28 @@ static void write_filter(mcp2515_bus_t *bus, uint8_t sidh_reg, uint32_t packed_i
     write_registers(bus, sidh_reg, bytes, sizeof(bytes));
 }
 
-static bool filters_are_valid(const can_filter_t *filters, size_t count)
+/*
+ * Both receive buffers are always live, so a filter set is only ever applied
+ * in full: either neither buffer filters, or both do. mcp2515_filter_plan()
+ * owns that decision and the 2/4 split between the banks; this writes the
+ * result out.
+ */
+static void configure_filters(mcp2515_bus_t *bus, const mcp2515_filter_plan_t *plan)
 {
-    if (count > MCP2515_MAX_FILTERS) {
-        return false;
-    }
-    for (size_t i = 0; i < count; i++) {
-        if ((filters[i].mask & CAN_FLAG_EXTENDED) == 0 || (filters[i].mask & CAN_FLAG_RTR) != 0) {
-            return false; /* the controller cannot mask off frame type or RTR */
-        }
-    }
-    for (size_t i = 1; i < count && i < 3; i++) {
-        if (filters[i].mask != filters[0].mask) {
-            return false; /* RXF0..RXF2 share one hardware mask, RXM0 */
-        }
-    }
-    for (size_t i = 4; i < count; i++) {
-        if (filters[i].mask != filters[3].mask) {
-            return false; /* RXF3..RXF5 share one hardware mask, RXM1 */
-        }
-    }
-    return true;
-}
-
-static void configure_filters(mcp2515_bus_t *bus, const can_filter_t *filters, size_t count)
-{
-    const size_t group0 = count < 3 ? count : 3;
-    const size_t group1 = count > 3 ? count - 3 : 0;
-
-    if (group0 == 0) {
+    if (plan->accept_all) {
         write_register(bus, REG_RXB0CTRL, 0x64u); /* RXM=11 (accept all), BUKT=1 */
-    } else {
-        for (size_t i = 0; i < 3; i++) {
-            const can_filter_t *source = &filters[i < group0 ? i : group0 - 1];
-            write_filter(bus, FILTER_REG[i], source->id);
-        }
-        write_filter(bus, REG_RXM0SIDH, filters[0].mask);
-        write_register(bus, REG_RXB0CTRL, 0x04u); /* RXM=00 (use filters), BUKT=1 */
+        write_register(bus, REG_RXB1CTRL, 0x60u); /* RXM=11 (accept all) */
+        return;
     }
 
-    if (group1 == 0) {
-        write_register(bus, REG_RXB1CTRL, 0x60u); /* RXM=11 (accept all) */
-    } else {
-        for (size_t i = 0; i < 3; i++) {
-            const can_filter_t *source = &filters[3 + (i < group1 ? i : group1 - 1)];
-            write_filter(bus, FILTER_REG[3 + i], source->id);
-        }
-        write_filter(bus, REG_RXM1SIDH, filters[3].mask);
-        write_register(bus, REG_RXB1CTRL, 0x00u); /* RXM=00 (use filters) */
+    for (size_t i = 0; i < MCP2515_FILTER_SLOTS; i++) {
+        write_filter(bus, FILTER_REG[i], plan->filter_id[i]);
     }
+    write_filter(bus, REG_RXM0SIDH, plan->mask[0]);
+    write_filter(bus, REG_RXM1SIDH, plan->mask[1]);
+
+    write_register(bus, REG_RXB0CTRL, 0x04u); /* RXM=00 (use filters), BUKT=1 */
+    write_register(bus, REG_RXB1CTRL, 0x00u); /* RXM=00 (use filters) */
 }
 
 /* -----------------------------------------------------------------------
@@ -270,9 +246,9 @@ static void update_stats(mcp2515_bus_t *bus)
 
 mcp2515_result_t mcp2515_bus_init(mcp2515_bus_t *bus, const mcp2515_bus_config_t *config)
 {
+    mcp2515_filter_plan_t plan;
     if (bus == NULL || config == NULL || config->spi == NULL || config->oscillator_hz == 0 ||
-        (config->filter_count != 0 && config->filters == NULL) ||
-        !filters_are_valid(config->filters, config->filter_count)) {
+        !mcp2515_filter_plan(config->filters, config->filter_count, &plan)) {
         return MCP2515_ERR_INVALID_ARG;
     }
 
@@ -304,7 +280,7 @@ mcp2515_result_t mcp2515_bus_init(mcp2515_bus_t *bus, const mcp2515_bus_config_t
         spi_set_baudrate(bus->spi, config->spi_baudrate_hz);
     }
 
-    mcp2515_reset(bus);
+    mcp2515_reset(bus, config->oscillator_hz);
 
     /* A chip that never answers reads back whatever MISO floats to, never
        config mode's 0b100 — the cheapest available "is anything wired up
@@ -322,7 +298,7 @@ mcp2515_result_t mcp2515_bus_init(mcp2515_bus_t *bus, const mcp2515_bus_config_t
                         CANINTF_TX2IF | CANINTF_ERRIF);
     write_register(bus, REG_CANINTF, 0);
 
-    configure_filters(bus, config->filters, config->filter_count);
+    configure_filters(bus, &plan);
 
     const mcp2515_result_t mode_result = switch_mode(bus, reqop_for(config->mode));
     if (mode_result != MCP2515_OK) {

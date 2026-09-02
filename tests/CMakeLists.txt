@@ -162,6 +162,19 @@ target_include_directories(mcp2515_timing_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/mcp2515/include"
 )
 
+host_test(mcp2515_filters_test
+    SOURCES
+        tests/components/mcp2515_filters_test.c
+        components/mcp2515/mcp2515_filters.c
+        components/can_frame/can_frame.c
+        components/ring_buffer/ring_buffer.c
+)
+target_include_directories(mcp2515_filters_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/mcp2515/include"
+    "${PICO_FRAMEWORK_ROOT}/components/can_frame/include"
+    "${PICO_FRAMEWORK_ROOT}/components/ring_buffer/include"
+)
+
 host_test(mcp2515_frame_test
     SOURCES
         tests/components/mcp2515_frame_test.c

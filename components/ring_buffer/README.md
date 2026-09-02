@@ -50,13 +50,25 @@ ring_buffer_write(&rb, chunk, len);       /* returns how much fitted */
 uint8_t byte;
 while (ring_buffer_pop(&rb, &byte)) { ... }
 size_t got = ring_buffer_read(&rb, buffer, sizeof(buffer));
+
+/* consumer handing bytes to something that may take fewer than it is offered */
+size_t staged = ring_buffer_peek_bytes(&rb, packet, room);   /* does not consume */
+uint16_t taken = link_send(packet, staged);
+ring_buffer_discard(&rb, taken);                             /* only what it took */
 ```
 
 Block transfers are partial by design: `write` stores what fits and reports how
 much, rather than failing outright, because partial progress is the normal case
 for a stream.
 
-`ring_buffer_clear()` moves `tail`, so it is consumer-side only.
+The peek/discard pair exists because reading bytes out and pushing the leftovers
+back is *not* the same thing. There is no push-front, so the leftovers would go
+in behind whatever was queued after them, turning a partial acceptance into
+reordered output. Peek, offer, then discard exactly what was accepted, and the
+front of the queue never moves under bytes that were refused.
+
+`ring_buffer_clear()` and `ring_buffer_discard()` both move `tail`, so they are
+consumer-side only.
 
 ## Testing
 
@@ -66,4 +78,6 @@ works on the first pass and corrupts data once the indices wrap is the classic
 failure, and it only appears after the buffer has been running a while. Several
 tests push thousands of bytes through an eight-byte buffer for that reason, and
 one interleaves mismatched producer and consumer burst sizes the way an
-interrupt and a main loop actually do.
+interrupt and a main loop actually do. `peek_bytes` and `discard` get their own
+wrapping case, where a peeked run spans the end of the storage and only a prefix
+of it is then discarded.

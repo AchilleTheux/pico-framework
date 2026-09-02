@@ -29,4 +29,9 @@ pico_framework_set_warnings(main.c)
 pico_enable_stdio_usb(app_firmware_update_test 1)
 pico_enable_stdio_uart(app_firmware_update_test 1)
 
+# Fail the link rather than the update: this application stages an image into
+# the region above its own, so an image that grew past the application/staging
+# boundary would have it erase live code.
+pico_framework_reserve_flash_layout(app_firmware_update_test)
+
 pico_add_extra_outputs(app_firmware_update_test)

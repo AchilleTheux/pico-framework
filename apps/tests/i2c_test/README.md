@@ -45,6 +45,14 @@ i2c> info                  bus configuration
 
 Addresses and register numbers are hex; widths are decimal.
 
+`scan` and `probe` each read one byte from the address and throw it away — the
+hardware cannot send an address on its own, so there is no knock-only probe.
+That byte is a real transaction: on a device with a read FIFO it consumes an
+entry, and on one with a clear-on-read status register it clears it. Harmless
+for finding out what is fitted on an idle bus, which is what this bench is for;
+see the [component README](../../../components/i2c_device/README.md) before
+pointing it at a device that is mid-conversion.
+
 `read` prints both the unsigned and the signed interpretation, because which is
 right depends on the register and only the datasheet knows.
 

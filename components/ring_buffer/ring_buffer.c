@@ -133,7 +133,7 @@ bool ring_buffer_pop(ring_buffer_t *rb, uint8_t *byte)
     return true;
 }
 
-size_t ring_buffer_read(ring_buffer_t *rb, void *data, size_t len)
+size_t ring_buffer_peek_bytes(const ring_buffer_t *rb, void *data, size_t len)
 {
     uint8_t *bytes = (uint8_t *)data;
 
@@ -149,6 +149,8 @@ size_t ring_buffer_read(ring_buffer_t *rb, void *data, size_t len)
         return 0;
     }
 
+    /* Copy out in at most two runs rather than byte at a time: one to the end
+       of the storage, one from the start. */
     const size_t tail = rb->tail;
     const size_t until_end = rb->size - tail;
     const size_t first = (readable < until_end) ? readable : until_end;
@@ -158,9 +160,32 @@ size_t ring_buffer_read(ring_buffer_t *rb, void *data, size_t len)
         memcpy(bytes + first, &rb->storage[0], readable - first);
     }
 
-    RING_BUFFER_BARRIER();
-    rb->tail = advance(rb, tail, readable);
     return readable;
+}
+
+size_t ring_buffer_discard(ring_buffer_t *rb, size_t len)
+{
+    if (rb == NULL) {
+        return 0;
+    }
+
+    size_t dropped = ring_buffer_count(rb);
+    if (len < dropped) {
+        dropped = len;
+    }
+    if (dropped == 0) {
+        return 0;
+    }
+
+    RING_BUFFER_BARRIER();
+    rb->tail = advance(rb, rb->tail, dropped);
+    return dropped;
+}
+
+size_t ring_buffer_read(ring_buffer_t *rb, void *data, size_t len)
+{
+    const size_t taken = ring_buffer_peek_bytes(rb, data, len);
+    return ring_buffer_discard(rb, taken);
 }
 
 void ring_buffer_clear(ring_buffer_t *rb)

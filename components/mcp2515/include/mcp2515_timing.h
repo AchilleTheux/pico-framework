@@ -39,6 +39,23 @@ typedef struct {
 bool mcp2515_compute_bit_timing(uint32_t oscillator_hz, uint32_t bitrate,
                                  mcp2515_bit_timing_t *timing);
 
+/*
+ * How long to wait after an SPI RESET before the controller will answer
+ * again, in microseconds.
+ *
+ * Datasheet section 8.1 states the requirement in the controller's own clock
+ * — 128 oscillator cycles — so it is 16 us on an 8 MHz module and 8 us at
+ * 16 MHz. A driver that waits a fixed 10 us is short for every crystal below
+ * 12.8 MHz, and reading a register too early returns a floating MISO line,
+ * which is indistinguishable from no chip being fitted.
+ *
+ * The result is rounded up and then doubled: a few microseconds once at
+ * startup buys margin against a slow-starting resonator, and the failure it
+ * prevents is a working board reported as absent. `oscillator_hz` of 0
+ * returns the largest wait rather than none.
+ */
+uint32_t mcp2515_reset_delay_us(uint32_t oscillator_hz);
+
 #ifdef __cplusplus
 }
 #endif

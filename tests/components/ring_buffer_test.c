@@ -130,6 +130,92 @@ TEST(peek_does_not_consume)
     CHECK_EQ_INT(byte, 0x42);
 }
 
+TEST(peek_bytes_does_not_consume)
+{
+    uint8_t storage[8];
+    ring_buffer_t rb;
+    ring_buffer_init(&rb, storage, sizeof(storage));
+    ring_buffer_write(&rb, "abcde", 5);
+
+    uint8_t out[5] = {0};
+    CHECK_EQ_INT(ring_buffer_peek_bytes(&rb, out, 3), 3);
+    CHECK(memcmp(out, "abc", 3) == 0);
+    CHECK_EQ_INT(ring_buffer_count(&rb), 5);
+
+    /* Twice in a row gives the same bytes, which is the whole point. */
+    memset(out, 0, sizeof(out));
+    CHECK_EQ_INT(ring_buffer_peek_bytes(&rb, out, 3), 3);
+    CHECK(memcmp(out, "abc", 3) == 0);
+    CHECK_EQ_INT(ring_buffer_count(&rb), 5);
+}
+
+TEST(peek_bytes_reads_what_is_there_and_no_more)
+{
+    uint8_t storage[8];
+    ring_buffer_t rb;
+    ring_buffer_init(&rb, storage, sizeof(storage));
+
+    uint8_t out[8];
+    memset(out, 0xEE, sizeof(out));
+    CHECK_EQ_INT(ring_buffer_peek_bytes(&rb, out, sizeof(out)), 0);
+    CHECK_EQ_INT(out[0], 0xEE); /* untouched */
+
+    ring_buffer_write(&rb, "ab", 2);
+    CHECK_EQ_INT(ring_buffer_peek_bytes(&rb, out, sizeof(out)), 2);
+    CHECK(memcmp(out, "ab", 2) == 0);
+    CHECK_EQ_INT(out[2], 0xEE);
+}
+
+TEST(discard_drops_from_the_front_and_reports_how_many)
+{
+    uint8_t storage[8];
+    ring_buffer_t rb;
+    ring_buffer_init(&rb, storage, sizeof(storage));
+    ring_buffer_write(&rb, "abcde", 5);
+
+    CHECK_EQ_INT(ring_buffer_discard(&rb, 2), 2);
+    CHECK_EQ_INT(ring_buffer_count(&rb), 3);
+
+    uint8_t out[4] = {0};
+    CHECK_EQ_INT(ring_buffer_read(&rb, out, 3), 3);
+    CHECK(memcmp(out, "cde", 3) == 0);
+
+    /* More than is there discards what is there, and zero is legal. */
+    ring_buffer_write(&rb, "xy", 2);
+    CHECK_EQ_INT(ring_buffer_discard(&rb, 0), 0);
+    CHECK_EQ_INT(ring_buffer_discard(&rb, 99), 2);
+    CHECK(ring_buffer_is_empty(&rb));
+}
+
+TEST(peek_then_discard_a_prefix_leaves_the_rest_in_order)
+{
+    /*
+     * The pattern bt_stream uses for a link that accepts part of a packet:
+     * peek, offer, discard only what was taken. Exercised across a wrap,
+     * because that is where a two-run copy with no consume goes wrong.
+     */
+    uint8_t storage[9];   /* capacity 8 */
+    ring_buffer_t rb;
+    ring_buffer_init(&rb, storage, sizeof(storage));
+
+    /* Push the indices near the end of the storage so the next run wraps. */
+    ring_buffer_write(&rb, "zzzzzz", 6);
+    CHECK_EQ_INT(ring_buffer_discard(&rb, 6), 6);
+
+    CHECK_EQ_INT(ring_buffer_write(&rb, "abcdefgh", 8), 8);
+
+    uint8_t out[8] = {0};
+    CHECK_EQ_INT(ring_buffer_peek_bytes(&rb, out, 5), 5);
+    CHECK(memcmp(out, "abcde", 5) == 0);
+
+    /* Only two of the five were accepted. */
+    CHECK_EQ_INT(ring_buffer_discard(&rb, 2), 2);
+
+    memset(out, 0, sizeof(out));
+    CHECK_EQ_INT(ring_buffer_read(&rb, out, sizeof(out)), 6);
+    CHECK(memcmp(out, "cdefgh", 6) == 0);
+}
+
 /* ---------------------------------------------------------------------------
  * Wraparound
  * -------------------------------------------------------------------------*/
@@ -350,6 +436,10 @@ TEST_MAIN(
     RUN(pushing_into_a_full_buffer_fails_without_losing_data);
     RUN(popping_an_empty_buffer_fails);
     RUN(peek_does_not_consume);
+    RUN(peek_bytes_does_not_consume);
+    RUN(peek_bytes_reads_what_is_there_and_no_more);
+    RUN(discard_drops_from_the_front_and_reports_how_many);
+    RUN(peek_then_discard_a_prefix_leaves_the_rest_in_order);
 
     RUN(data_survives_many_wraps);
     RUN(a_block_write_that_wraps_reads_back_intact);

@@ -34,6 +34,40 @@ bootloader sitting below one, with nothing to keep in sync.
 The `firmware_update_test` application checks this on real hardware without any
 risk, because a refusal is the pass condition.
 
+It answers a narrow question, though: *is this region the one I am executing
+from*. It does not answer *does my image end before this region begins*. A
+firmware linked from offset 0 that has grown past the halfway point is still
+"running from" the application region and not from staging — so `fwbegin` would
+consider staging free and erase the far end of the live image. Which is why the
+boundary is also the linker's, below.
+
+## The application region is a linker region, not a convention
+
+`pico_framework_reserve_flash_layout(<target>)`, from this component's
+`CMakeLists.txt`, redefines the `FLASH` memory region as the application region
+rather than the whole chip. An image that outgrows it then stops linking, with
+the allocator's own message:
+
+```text
+ld: region `FLASH' overflowed by 8208 bytes
+```
+
+Nothing about what the C code can address changes — staging, the manifest and
+the data region are still reachable through `flash_layout_get()`. They are just
+no longer somewhere the linker is allowed to *place* the image.
+
+Applications that stage firmware updates call it; `serial_update_test` and
+`firmware_update_test` both do. One that never writes outside its own region
+can skip it and use the whole chip.
+
+The division has to be stated three times — `flash_layout_compute()`, the
+constant-expression macros in `flash_layout.h`, and the CMake arithmetic that
+generates the linker fragment — because a linker script cannot call a C
+function. Two checks stop those drifting: a `_Static_assert` in
+`flash_layout.c` holds CMake's number against the header's, and the
+`flash_layout_matches_macros` host test holds the header's against
+`flash_layout_compute()` across every chip size and reservation.
+
 ## Layout
 
 The chip is divided from its own size rather than by hard-coded addresses:
@@ -62,7 +96,14 @@ region. When the sector count does not halve evenly the spare sector goes to
 the data region rather than to either image, so that invariant holds. A host
 test checks it across every chip size from 34 sectors to 16 MiB.
 
-`FLASH_LAYOUT_DATA_SECTORS` sets the reserved tail; the rest follows.
+`PICO_FRAMEWORK_FLASH_DATA_SECTORS` (CMake) sets the reserved tail; the rest
+follows. It reaches the C code as `FLASH_LAYOUT_DATA_SECTORS`, alongside
+`FLASH_LAYOUT_FLASH_SIZE` — the chip size, taken from `PICO_FLASH_SIZE_BYTES`
+at configure time. Both are passed in rather than included, because
+`flash_layout.c` deliberately pulls in no SDK header so the host tests can
+compile it; without them a 4 MiB board would silently divide itself as if it
+were 2 MiB, putting staging in the middle of the chip and leaving the top half
+unused.
 
 ## Usage
 
@@ -107,7 +148,9 @@ multicore lockout path.
 
 ## Testing
 
-* Host: `make test` covers the division of the chip and every bounds check.
+* Host: `make test` covers the division of the chip, every bounds check, and
+  the agreement between `flash_layout_compute()` and the constant-expression
+  form the linker limit is generated from.
 * Hardware: `make APP=tests/firmware_update_test` for the read-only and guard
   checks; `PROFILE=write_flash` additionally erases and programs a staging
   sector, which is destructive to staging but never to the running firmware.

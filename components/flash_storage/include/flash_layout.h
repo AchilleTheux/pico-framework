@@ -49,10 +49,48 @@ extern "C" {
  * Sectors reserved at the end of flash for data that must survive an update.
  * 32 sectors is 128 KiB, which is generous for a config file and a log and
  * costs little on a 2 MiB part.
+ *
+ * Set from CMake (PICO_FRAMEWORK_FLASH_DATA_SECTORS) on a target build, so
+ * that the linker and this header divide the chip the same way. The default
+ * below is what a host build and a stray include get.
  */
 #ifndef FLASH_LAYOUT_DATA_SECTORS
 #define FLASH_LAYOUT_DATA_SECTORS 32u
 #endif
+
+/*
+ * The size of the flash chip this build is for.
+ *
+ * Also set from CMake, out of PICO_FLASH_SIZE_BYTES, rather than taken from
+ * the board header: this file is compiled by the host tests and stays free of
+ * the SDK. Without it a 4 MiB board would silently get the 2 MiB division
+ * below — a staging region in the middle of the chip and the top half unused.
+ */
+#ifndef FLASH_LAYOUT_FLASH_SIZE
+#define FLASH_LAYOUT_FLASH_SIZE (2u * 1024u * 1024u)
+#endif
+
+/*
+ * The division of the chip as constant expressions.
+ *
+ * flash_layout_compute() is the definition; these repeat it for the two places
+ * that need an answer before anything runs — a _Static_assert, and the
+ * matching arithmetic in the component's CMakeLists that the linker script is
+ * generated from. `flash_layout_matches_macros` in the host tests holds the
+ * two forms to each other, so a change to one that is not made to the other
+ * fails a test rather than shifting a region under a running updater.
+ */
+#define FLASH_LAYOUT_TOTAL_SECTORS(flash_size) ((flash_size) / FLASH_LAYOUT_SECTOR_SIZE)
+
+#define FLASH_LAYOUT_IMAGE_SECTORS(flash_size, data_sectors) \
+    ((FLASH_LAYOUT_TOTAL_SECTORS(flash_size) - (data_sectors)) / 2u)
+
+#define FLASH_LAYOUT_IMAGE_SIZE(flash_size, data_sectors) \
+    (FLASH_LAYOUT_IMAGE_SECTORS(flash_size, data_sectors) * FLASH_LAYOUT_SECTOR_SIZE)
+
+/* This build's application region size, which is also the staging region's. */
+#define FLASH_LAYOUT_APPLICATION_SIZE \
+    FLASH_LAYOUT_IMAGE_SIZE(FLASH_LAYOUT_FLASH_SIZE, FLASH_LAYOUT_DATA_SECTORS)
 
 /* A span of flash, as an offset from the start of the chip — never an XIP
    address, so that nothing here can be dereferenced by accident. */
@@ -92,7 +130,7 @@ typedef enum {
 flash_layout_result_t flash_layout_compute(uint32_t flash_size, uint32_t data_sectors,
                                            flash_layout_t *layout);
 
-/* The layout for this build, from PICO_FLASH_SIZE_BYTES and the settings
+/* The layout for this build, from FLASH_LAYOUT_FLASH_SIZE and the settings
    above. Computed once; the same object every call. */
 const flash_layout_t *flash_layout_get(void);
 

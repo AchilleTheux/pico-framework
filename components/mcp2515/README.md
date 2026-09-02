@@ -97,15 +97,37 @@ example. Standard combinations most modules ship with — a small number of
 common crystal frequencies (8, 16, 20 MHz) against the standard CAN bit rates
 — all resolve.
 
+It also sets how long init waits after resetting the controller. The datasheet
+states that as 128 *oscillator* cycles (section 8.1), so it is 16 us at 8 MHz
+and 8 us at 16 MHz; `mcp2515_reset_delay_us()` derives it rather than using a
+fixed figure, because reading a register too early returns a floating MISO
+line and `mcp2515_bus_init()` cannot tell that apart from an empty socket —
+a working 8 MHz module would be reported as `MCP2515_ERR_NO_DEVICE`.
+
 ## Hardware filters are real hardware, not a software list
 
 `can`'s software filters accept an arbitrary-length list, each entry
-independent. The MCP2515 has **two independent three-filter banks**: filters
-`[0..2]` share one mask register (RXM0), filters `[3..5]` share a second
-(RXM1). Every filter within a bank must use the identical `.mask` —
-`mcp2515_bus_init()` validates this and returns `MCP2515_ERR_INVALID_ARG`
+independent. The MCP2515 has six filters attached to two receive buffers, and
+the two are **not the same size** (datasheet section 4.5):
+
+| Buffer | Filters | Mask |
+|--------|---------|------|
+| RXB0 | RXF0, RXF1 | RXM0 |
+| RXB1 | RXF2, RXF3, RXF4, RXF5 | RXM1 |
+
+So filters `[0..1]` must share one `.mask` and filters `[2..5]` a second;
+`mcp2515_bus_init()` validates that and returns `MCP2515_ERR_INVALID_ARG`
 otherwise. An empty filter set accepts everything, the same convention as
 `can`.
+
+**A buffer with no filter configured accepts the whole bus.** There is no way
+to switch a receive buffer off, so a filter set that fills only RXB0 does not
+narrow anything — RXB1 keeps delivering every frame on the wire, and nothing
+reports it. A short list is therefore repeated into the remaining slots under
+the same mask rather than left open: with one filter, all six slots hold it
+and both masks are the caller's. Both buffers then accept exactly the same
+frames and the pair is depth rather than a hole. `mcp2515_filters.h` owns that
+mapping, separately from the SPI code, so it is host-tested.
 
 Two further hardware limits, also validated at init:
 
@@ -117,7 +139,9 @@ Two further hardware limits, also validated at init:
 
 RXB0 has rollover enabled unconditionally (`BUKT`): when it fills, the next
 message rolls into RXB1 instead of being dropped, buying a little more
-headroom against a slow polling loop before `rx_overflow` starts counting.
+headroom against a slow polling loop before `rx_overflow` starts counting. A
+rolled-over frame is not re-filtered, so rollover never widens what is
+accepted.
 
 ## Modes
 
@@ -150,7 +174,11 @@ interrupt-safe path here the way `can_bus_send()` inherits from can2040.
 
 `tests/components/mcp2515_timing_test.c` verifies bit-timing register
 computation is exact (not approximated) and stays within the controller's
-valid field ranges, across a spread of oscillator/bit-rate pairs.
+valid field ranges, across a spread of oscillator/bit-rate pairs, and that
+the post-reset wait really covers 128 oscillator cycles at each of them.
+`tests/components/mcp2515_filters_test.c` pins the 2/4 bank split, that a
+short filter list still leaves both receive buffers filtering, and each
+constraint the controller cannot express.
 `tests/components/mcp2515_frame_test.c` covers SIDH/SIDL/EID8/EID0/DLC
 packing round-trips for standard, extended, data, and remote frames, and
 pins the exact bit position of the extended and remote-request flags.

@@ -2,10 +2,18 @@
 
 #include "flash_layout.h"
 
-#ifndef PICO_FLASH_SIZE_BYTES
-/* Only reached in a host build, where there is no board header. The value is
-   irrelevant to the tests, which compute layouts explicitly. */
-#define PICO_FLASH_SIZE_BYTES (2u * 1024u * 1024u)
+/*
+ * The component's CMakeLists performs this same division to size the FLASH
+ * region it hands the linker, because a linker script cannot read this header.
+ * If the two ever disagree, the linker's idea of where the application ends is
+ * not the one every bound check here is written against — which is the whole
+ * failure this build-time enforcement exists to prevent. Refuse to build
+ * instead.
+ */
+#ifdef FLASH_LAYOUT_CMAKE_APPLICATION_SIZE
+_Static_assert(FLASH_LAYOUT_CMAKE_APPLICATION_SIZE == FLASH_LAYOUT_APPLICATION_SIZE,
+               "the application region CMake reserved in the linker script is not "
+               "the one flash_layout.h computes");
 #endif
 
 flash_layout_result_t flash_layout_compute(uint32_t flash_size, uint32_t data_sectors,
@@ -63,7 +71,7 @@ const flash_layout_t *flash_layout_get(void)
         /* A failure here would mean the build is configured for a chip too
            small to hold two images; leaving the layout zeroed makes every
            bounds check reject, which is the safe outcome. */
-        if (flash_layout_compute(PICO_FLASH_SIZE_BYTES, FLASH_LAYOUT_DATA_SECTORS,
+        if (flash_layout_compute(FLASH_LAYOUT_FLASH_SIZE, FLASH_LAYOUT_DATA_SECTORS,
                                  &layout) != FLASH_LAYOUT_OK) {
             layout = (flash_layout_t){ 0 };
         }

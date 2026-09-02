@@ -72,6 +72,21 @@ nothing is at that address; `I2C_DEVICE_ERR_TIMEOUT` means the bus itself is
 stuck, usually a missing pull-up or a device holding SDA down. Collapsing them
 into one error is how an afternoon gets spent on the wrong problem.
 
+## A presence check is a read, not a knock
+
+`i2c_device_present()` and `i2c_bus_scan()` cannot ask "is anyone there?"
+without moving a byte. The RP2040 and RP2350 I2C block puts the start and stop
+flags in the same FIFO word as a data item, so the SDK refuses a zero-length
+transfer; a probe is a one-byte read whose result is discarded.
+
+The address acknowledgement is the answer, but that discarded byte is a real
+transaction on the device: it takes an entry out of a read FIFO, advances an
+auto-incrementing register pointer, and clears a clear-on-read status
+register. Scanning an idle bus to find out what is fitted is exactly what it
+is for. Checking on a device that is mid-conversion or holding data is not —
+read a register known to be harmless for that part and check the result
+instead.
+
 ## Pull-ups
 
 I2C needs them, and the pads' internal ones are around 50 kΩ — far weaker than

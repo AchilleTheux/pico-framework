@@ -99,22 +99,35 @@ i2c_device_result_t i2c_device_write_read(const i2c_device_t *device,
     if (device == NULL || !device->initialised || tx == NULL || tx_len == 0) {
         return I2C_DEVICE_ERR_INVALID_ARG;
     }
+    if (rx == NULL && rx_len > 0) {
+        return I2C_DEVICE_ERR_INVALID_ARG;
+    }
 
     /*
-     * `nostop` on the write, so the bus is held between the two halves. A stop
-     * condition in the middle would release it, and another master — or a
+     * Whether the write holds the bus depends on whether a read follows it.
+     *
+     * With one to come, `nostop` keeps control between the two halves: a stop
+     * condition in the middle would release the bus, and another master — or a
      * repeated start from this one after a delay — could leave the device
      * pointing at a different register than the one just selected.
+     *
+     * With no read to come there is nothing to hold the bus *for*, and holding
+     * it would end the call with the transaction still open: no stop is ever
+     * issued, the next unrelated transfer begins with a repeated start instead
+     * of a start, and any other master stays locked out until something else
+     * happens to release it. So a write with an empty read is just a write.
      */
+    const bool read_follows = rx_len > 0;
+
     const int written = i2c_write_timeout_us(device->i2c, device->address,
-                                             (const uint8_t *)tx, tx_len, true,
-                                             timeout_of(device));
+                                             (const uint8_t *)tx, tx_len,
+                                             read_follows, timeout_of(device));
     const i2c_device_result_t write_result = translate(written, tx_len);
     if (write_result != I2C_DEVICE_OK) {
         return write_result;
     }
 
-    if (rx == NULL || rx_len == 0) {
+    if (!read_follows) {
         return I2C_DEVICE_OK;
     }
 
@@ -131,9 +144,21 @@ bool i2c_device_present(const i2c_device_t *device)
     }
 
     /*
-     * A zero-length read: the address goes out and the device either
-     * acknowledges it or does not. Nothing is transferred, so this cannot
-     * disturb a device that is mid-conversion.
+     * A one-byte read, whose result is thrown away. The answer being looked
+     * for is the address acknowledgement, not the byte.
+     *
+     * The address-only probe this would rather be is not available: the RP2040
+     * and RP2350 I2C block carries the start and stop flags in the same FIFO
+     * word as a data item, so the SDK rejects a zero-length transfer outright
+     * (`invalid_params_if(HARDWARE_I2C, len == 0)` in i2c.c). Some byte has to
+     * move for the address to go out at all.
+     *
+     * That byte is not free, and callers are told so in the header: on a
+     * device with a read FIFO it consumes an entry, on one with an
+     * auto-incrementing pointer it advances it, and on one with a
+     * clear-on-read status register it clears it. Where that matters, read a
+     * register known to be harmless on that particular device and check the
+     * result instead of using this.
      */
     uint8_t discard;
     return i2c_read_timeout_us(device->i2c, device->address, &discard, 1, false,

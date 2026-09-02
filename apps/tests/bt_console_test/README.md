@@ -82,6 +82,16 @@ summary, because the summary competed for the same already-full buffer.
 | closing the terminal | USB reports `bluetooth peer disconnected` |
 | reopening | greeting again, with no stale text from the last session |
 
+Re-run on the same board (2026-09-03) after the `bt_stream` partial-send fix,
+driving RFCOMM from an `AF_BLUETOOTH`/`BTPROTO_RFCOMM` socket rather than
+`rfcomm bind` (no root needed, and it makes the check scriptable):
+
+| Step | Result |
+|------|--------|
+| `btstatus` | `radio present`, `link connected`, `0 out, 0 in` |
+| `flood 200` | all 200 lines, in order, bodies intact, `0 bytes dropped` |
+| `flood 500` | 472 of 500 arrived, line numbers strictly increasing, every body intact, `1673 bytes dropped` and `btstatus` agreeing — the tail went, nothing was transposed |
+
 ## Interpreting failures
 
 | Symptom | Likely cause |

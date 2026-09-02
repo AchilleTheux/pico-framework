@@ -91,10 +91,69 @@ TEST(invalid_arguments_are_rejected)
     CHECK(!mcp2515_compute_bit_timing(8000000u, 500000u, NULL));
 }
 
+/* ---------------------------------------------------------------------------
+ * Reset delay
+ * -------------------------------------------------------------------------*/
+
+TEST(the_reset_delay_covers_128_oscillator_cycles)
+{
+    /*
+     * Datasheet section 8.1. The number that matters is the *floor*: a wait
+     * shorter than 128 cycles lets a register read return a floating MISO
+     * line, which mcp2515_bus_init() cannot tell apart from an empty socket.
+     */
+    const uint32_t oscillators[] = {
+        8000000u, 10000000u, 12000000u, 16000000u, 20000000u, 25000000u,
+    };
+
+    for (size_t i = 0; i < count_of_(oscillators); i++) {
+        const uint32_t hz = oscillators[i];
+        const uint32_t delay = mcp2515_reset_delay_us(hz);
+
+        /* delay microseconds is at least 128 cycles: delay * hz >= 128e6. */
+        if ((uint64_t)delay * hz < 128000000ull) {
+            printf("    %u Hz: %u us is under 128 cycles\n",
+                   (unsigned)hz, (unsigned)delay);
+            CHECK(false);
+        }
+    }
+}
+
+TEST(an_8mhz_module_waits_longer_than_the_old_fixed_10us)
+{
+    /* The specific regression: 128 cycles at 8 MHz is 16 us, and the README's
+       own worked example uses an 8 MHz crystal. */
+    CHECK(mcp2515_reset_delay_us(8000000u) >= 16u);
+    CHECK(mcp2515_reset_delay_us(8000000u) > 10u);
+}
+
+TEST(a_faster_crystal_does_not_wait_longer)
+{
+    CHECK(mcp2515_reset_delay_us(16000000u) <= mcp2515_reset_delay_us(8000000u));
+}
+
+TEST(a_nonsense_oscillator_waits_rather_than_not_waiting)
+{
+    /* 0 would divide by zero if it reached the arithmetic; it must clamp to
+       the longest wait, never to none. */
+    CHECK(mcp2515_reset_delay_us(0) >= mcp2515_reset_delay_us(8000000u));
+    CHECK(mcp2515_reset_delay_us(1) >= mcp2515_reset_delay_us(8000000u));
+
+    /* And an absurdly large one must not overflow the rounding-up numerator
+       into a wait of nothing. */
+    CHECK(mcp2515_reset_delay_us(UINT32_MAX) > 0);
+    CHECK(mcp2515_reset_delay_us(4000000000u) > 0);
+}
+
 TEST_MAIN(
     RUN(a_common_16mhz_500kbps_configuration_is_exact);
     RUN(an_8mhz_125kbps_configuration_is_exact);
     RUN(every_register_field_stays_within_its_valid_range);
     RUN(an_unreachable_bitrate_is_rejected_rather_than_approximated);
     RUN(invalid_arguments_are_rejected);
+
+    RUN(the_reset_delay_covers_128_oscillator_cycles);
+    RUN(an_8mhz_module_waits_longer_than_the_old_fixed_10us);
+    RUN(a_faster_crystal_does_not_wait_longer);
+    RUN(a_nonsense_oscillator_waits_rather_than_not_waiting);
 )

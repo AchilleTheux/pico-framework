@@ -24,6 +24,7 @@
 #include "hardware/spi.h"
 
 #include "can_frame.h"
+#include "mcp2515_filters.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,8 +37,9 @@ extern "C" {
    reports true and the caller polls unconditionally. */
 #define MCP2515_NO_INT_PIN (-1)
 
-/* RXF0..RXF2 share RXM0, RXF3..RXF5 share RXM1 — see mcp2515_bus_config_t. */
-#define MCP2515_MAX_FILTERS 6u
+/* RXF0..RXF5. The banks behind them are not the same size; see
+   mcp2515_bus_config_t and mcp2515_filters.h. */
+#define MCP2515_MAX_FILTERS MCP2515_FILTER_SLOTS
 
 typedef enum {
     MCP2515_OK = 0,
@@ -93,10 +95,15 @@ typedef struct {
      * Optional hardware acceptance filters. NULL/0 accepts every valid
      * frame, matching components/can's software-filter convention — but
      * unlike that component's arbitrary filter list, this is real
-     * controller hardware with two independent 3-filter banks: filters
-     * [0..2] share one mask (RXM0) and [3..5] share a second (RXM1), so
-     * every filter within each half of the array must use the identical
-     * `.mask`. mcp2515_bus_init() validates this and fails otherwise.
+     * controller hardware with two receive buffers of unequal width:
+     * filters [0..1] belong to RXB0 and share its mask (RXM0), filters
+     * [2..5] belong to RXB1 and share its mask (RXM1). Every filter within
+     * one of those two spans must use the identical `.mask`;
+     * mcp2515_bus_init() validates this and fails otherwise.
+     *
+     * Supplying one or two filters still filters both buffers — they are
+     * repeated into RXB1's slots — because a receive buffer with no filter
+     * configured accepts the entire bus. See mcp2515_filters.h.
      *
      * Every filter's mask must include CAN_FLAG_EXTENDED (the controller
      * matches a filter's standard/extended flag exactly, never masks it)
