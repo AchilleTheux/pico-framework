@@ -18,4 +18,7 @@ pico_framework_set_warnings(main.c)
 pico_enable_stdio_usb(app_wifi_test 1)
 pico_enable_stdio_uart(app_wifi_test 1)
 
+# Saving credentials writes persistent_config's reserved flash sectors.
+pico_framework_reserve_flash_layout(app_wifi_test)
+
 pico_add_extra_outputs(app_wifi_test)

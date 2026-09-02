@@ -56,9 +56,11 @@ Nothing about what the C code can address changes — staging, the manifest and
 the data region are still reachable through `flash_layout_get()`. They are just
 no longer somewhere the linker is allowed to *place* the image.
 
-Applications that stage firmware updates call it; `serial_update_test` and
-`firmware_update_test` both do. One that never writes outside its own region
-can skip it and use the whole chip.
+Every application that writes outside its own region calls it. That includes
+firmware-update users (`simple_robot`, `serial_update_test`, and
+`firmware_update_test`) and persistent-config users (`config_test` and
+`wifi_test`). One that never writes outside its own region can skip it and use
+the whole chip.
 
 The division has to be stated three times — `flash_layout_compute()`, the
 constant-expression macros in `flash_layout.h`, and the CMake arithmetic that

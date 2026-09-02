@@ -15,4 +15,7 @@ pico_framework_set_warnings(main.c)
 pico_enable_stdio_usb(app_config_test 1)
 pico_enable_stdio_uart(app_config_test 1)
 
+# persistent_config erases sectors in the reserved data region.
+pico_framework_reserve_flash_layout(app_config_test)
+
 pico_add_extra_outputs(app_config_test)

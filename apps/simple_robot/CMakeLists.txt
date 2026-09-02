@@ -85,6 +85,10 @@ target_link_libraries(app_simple_robot PRIVATE
 pico_enable_stdio_usb(app_simple_robot 1)
 pico_enable_stdio_uart(app_simple_robot 0)
 
+# The firmware updater erases and programs the staging/manifest regions, so
+# keep the linked image inside the application half of the flash chip.
+pico_framework_reserve_flash_layout(app_simple_robot)
+
 # Apply framework compiler warning flags (-Wall, -Wextra, etc.)
 pico_framework_set_warnings(main.c)
 
