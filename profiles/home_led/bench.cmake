@@ -8,3 +8,6 @@ set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type")
 
 set(APP_LED_PIN   6 CACHE STRING "WS2812 data GPIO pin")
 set(APP_LED_COUNT 8 CACHE STRING "Number of LEDs on the strip")
+
+# Same strip as `default`, just less of it.
+set(APP_LED_ORDER "RGB" CACHE STRING "Wire colour order")

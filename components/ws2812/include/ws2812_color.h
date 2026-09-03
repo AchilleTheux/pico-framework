@@ -10,6 +10,7 @@
 #define PICO_FRAMEWORK_WS2812_COLOR_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -47,17 +48,67 @@ static inline ws2812_color_t ws2812_rgbw(uint8_t r, uint8_t g, uint8_t b, uint8_
 }
 
 /*
+ * The order a strip expects its three colour bytes in.
+ *
+ * Not a detail anyone gets to ignore. WS2812 and WS2812B send green first,
+ * and so do most SK6812 -- but WS2815 strips and the various clones are found
+ * in every permutation, with nothing on the reel to say which. The symptom is
+ * unmistakable once you know it: ask for red and get green, ask for green and
+ * get red, while blue is fine, and the strip is RGB rather than GRB. Two
+ * channels swapped is always an order mismatch, never a broken encoder.
+ *
+ * The names read in wire order: WS2812_ORDER_GRB puts green on the wire
+ * first. On an RGBW strip the white byte is always fourth, whichever of these
+ * is chosen.
+ */
+typedef enum {
+    WS2812_ORDER_GRB = 0,   /* WS2812, WS2812B, most SK6812 -- the default */
+    WS2812_ORDER_RGB,       /* many WS2815 strips, and clones */
+    WS2812_ORDER_BRG,
+    WS2812_ORDER_RBG,
+    WS2812_ORDER_GBR,
+    WS2812_ORDER_BGR,
+} ws2812_order_t;
+
+/* "GRB", "RGB", ... for a console that lets someone try them. */
+const char *ws2812_order_name(ws2812_order_t order);
+
+/* Parse one of those names, case-insensitively. False if it is not one. */
+bool ws2812_order_from_name(const char *name, ws2812_order_t *out);
+
+/*
  * Pack a colour into the 32-bit word the PIO program expects.
  *
  * The state machine shifts left (MSB first) with an autopull threshold of 24
  * bits for RGB and 32 for RGBW, so the bits it transmits are the *top* ones.
- * The result is therefore left-aligned: GRB in bits 31..8 for RGB, and GRBW in
- * bits 31..0 for RGBW. For RGB strips the low byte is zero and never clocked
- * out.
+ * The result is therefore left-aligned: the three colour bytes in `order`
+ * occupy bits 31..8, and white bits 7..0 for RGBW. For RGB strips the low
+ * byte is zero and never clocked out.
+ *
+ * The order is an argument rather than a constant because getting it wrong is
+ * a normal thing to do with an unlabelled strip, and a silent default is what
+ * makes it hard to find.
  */
-static inline uint32_t ws2812_color_to_wire(ws2812_color_t c, bool is_rgbw)
+static inline uint32_t ws2812_color_to_wire(ws2812_color_t c, bool is_rgbw,
+                                            ws2812_order_t order)
 {
-    uint32_t word = ((uint32_t)c.g << 24) | ((uint32_t)c.r << 16) | ((uint32_t)c.b << 8);
+    uint8_t first;
+    uint8_t second;
+    uint8_t third;
+
+    switch (order) {
+        case WS2812_ORDER_RGB: first = c.r; second = c.g; third = c.b; break;
+        case WS2812_ORDER_BRG: first = c.b; second = c.r; third = c.g; break;
+        case WS2812_ORDER_RBG: first = c.r; second = c.b; third = c.g; break;
+        case WS2812_ORDER_GBR: first = c.g; second = c.b; third = c.r; break;
+        case WS2812_ORDER_BGR: first = c.b; second = c.g; third = c.r; break;
+        case WS2812_ORDER_GRB:
+        default:               first = c.g; second = c.r; third = c.b; break;
+    }
+
+    const uint32_t word = ((uint32_t)first << 24) | ((uint32_t)second << 16) |
+                          ((uint32_t)third << 8);
+
     return is_rgbw ? (word | (uint32_t)c.w) : word;
 }
 

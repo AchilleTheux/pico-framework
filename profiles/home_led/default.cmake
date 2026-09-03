@@ -8,3 +8,7 @@ set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type")
 
 set(APP_LED_PIN   6   CACHE STRING "WS2812 data GPIO pin")
 set(APP_LED_COUNT 300 CACHE STRING "Number of LEDs on the strip")
+
+# This strip is a WS2815 that wants red first, confirmed on hardware: with the
+# GRB default, `rgb 255 0 0` lit it green and `rgb 0 255 0` lit it red.
+set(APP_LED_ORDER "RGB" CACHE STRING "Wire colour order")

@@ -132,6 +132,7 @@ ws2812_result_t ws2812_init(ws2812_strip_t *strip, const ws2812_config_t *config
         .pixels      = config->pixels,
         .length      = config->length,
         .is_rgbw     = config->is_rgbw,
+        .order       = config->order,
         .brightness  = 255,
         .gamma_table = NULL,
         .wire_buffer = config->wire_buffer,
@@ -223,6 +224,19 @@ void ws2812_set_gamma(ws2812_strip_t *strip, const uint8_t *table)
     strip->gamma_table = table;
 }
 
+void ws2812_set_order(ws2812_strip_t *strip, ws2812_order_t order)
+{
+    if (strip == NULL || !strip->initialised) {
+        return;
+    }
+    strip->order = order;
+}
+
+ws2812_order_t ws2812_get_order(const ws2812_strip_t *strip)
+{
+    return (strip != NULL && strip->initialised) ? strip->order : WS2812_ORDER_GRB;
+}
+
 /* The sticky flag the state machine raises when it stalls on an empty FIFO,
    which is how "everything has been clocked out" is detected. */
 static uint32_t stall_mask(const ws2812_strip_t *strip)
@@ -254,7 +268,7 @@ static uint32_t encode_pixel(const ws2812_strip_t *strip, uint16_t index)
         };
     }
 
-    return ws2812_color_to_wire(color, strip->is_rgbw);
+    return ws2812_color_to_wire(color, strip->is_rgbw, strip->order);
 }
 
 /* Convert the pixel buffer into wire words for the DMA transfer. */

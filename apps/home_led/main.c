@@ -126,6 +126,7 @@ static ws2812_color_t pixels[APP_LED_COUNT];
 static uint32_t wire_buffer[APP_LED_COUNT];
 
 static bool strip_ready;
+static ws2812_order_t strip_order;
 static bool radio_ready;
 static bool show_test_pattern;
 
@@ -447,12 +448,46 @@ static int cmd_test(cli_t *c, void *user_data)
     return CLI_OK;
 }
 
+/*
+ * Try a different wire order without rebuilding.
+ *
+ * Identifying an unlabelled strip means trying orders until red is red, and a
+ * reflash per attempt makes that a chore instead of a minute's work. The
+ * change is live but not stored -- put the answer in the profile once it is
+ * known, so a fresh board comes up right.
+ */
+static int cmd_order(cli_t *c, void *user_data)
+{
+    (void)user_data;
+    const char *name = cli_next_token(c);
+
+    if (name == NULL) {
+        cli_printf(c, "order %s (built with %s)\r\n",
+                   ws2812_order_name(ws2812_get_order(&strip)), APP_LED_ORDER);
+        cli_write(c, "  GRB RGB BRG RBG GBR BGR\r\n");
+        cli_write(c, "  set a red colour, then try orders until it looks red\r\n");
+        return CLI_OK;
+    }
+
+    ws2812_order_t order;
+    if (!ws2812_order_from_name(name, &order)) {
+        cli_printf(c, "no such order: %s\r\n", name);
+        return CLI_ERR_ARG;
+    }
+
+    ws2812_set_order(&strip, order);
+    cli_printf(c, "order %s (not saved; put it in the profile)\r\n",
+               ws2812_order_name(order));
+    return CLI_OK;
+}
+
 static int cmd_status(cli_t *c, void *user_data)
 {
     (void)user_data;
 
-    cli_printf(c, "strip        %u leds on gpio %u%s\r\n", (unsigned)APP_LED_COUNT,
-               (unsigned)APP_LED_PIN, strip_ready ? "" : "  (NOT INITIALISED)");
+    cli_printf(c, "strip        %u leds on gpio %u, %s%s\r\n", (unsigned)APP_LED_COUNT,
+               (unsigned)APP_LED_PIN, ws2812_order_name(ws2812_get_order(&strip)),
+               strip_ready ? "" : "  (NOT INITIALISED)");
     cli_printf(c, "light        %s, effect %s\r\n", light.on ? "on" : "off",
                light_effect_name(light.effect));
     cli_printf(c, "brightness   %u (showing %u)\r\n", (unsigned)light.brightness,
@@ -676,6 +711,7 @@ static const cli_command_t own_commands[] = {
     { "ct",         "ct [mireds] - colour temperature",        cmd_ct,         NULL },
     { "effect",     "effect [name] - show, list, or select",   cmd_effect,     NULL },
     { "test",       "toggle the wiring test pattern",          cmd_test,       NULL },
+    { "order",      "order [GRB|RGB|...] - strip wire order",  cmd_order,      NULL },
     { "status",     "light, strip, wifi and broker state",     cmd_status,     NULL },
 
     { "ssid",       "ssid [name] - show or set",               cmd_ssid,       NULL },
@@ -749,12 +785,20 @@ static void heartbeat(uint32_t at_ms)
 
 static void start_strip(void)
 {
+    /* The build's choice, unless it names something that is not an order at
+       all -- in which case the common one is a better guess than refusing to
+       light. */
+    if (!ws2812_order_from_name(APP_LED_ORDER, &strip_order)) {
+        strip_order = WS2812_ORDER_GRB;
+    }
+
     const ws2812_config_t config = {
         .pio = pio0,
         .pin = APP_LED_PIN,
         .pixels = pixels,
         .length = APP_LED_COUNT,
         .is_rgbw = false,
+        .order = strip_order,
         .frequency_hz = WS2812_DEFAULT_FREQUENCY_HZ,
 
         /* A wire buffer is what enables DMA, and at 300 pixels the difference

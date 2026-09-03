@@ -100,23 +100,45 @@ Link it from the application:
 target_link_libraries(app_my_firmware PRIVATE pico_framework::ws2812)
 ```
 
-## Wire format
+## Wire format, and channel order
 
 The PIO program shifts left with an autopull threshold of 24 bits (32 for
-RGBW), so the bits it clocks out are the *high* ones and the channel order on
-the wire is green, red, blue:
+RGBW), so the bits it clocks out are the *high* ones:
 
 ```text
 bit 31                                                              bit 0
 +-----------+-----------+-----------+-----------+
-|   green   |    red    |   blue    |   white   |   <- white only when is_rgbw
+|   first   |  second   |   third   |   white   |   <- white only when is_rgbw
 +-----------+-----------+-----------+-----------+
 ```
 
-`ws2812_color_to_wire()` in `ws2812_color.h` is the single place this layout is
-expressed, and `tests/components/ws2812_color_test.c` pins it down. If a strip
-shows red where green was asked for, it is a clone with a different channel
-order, not a bug in the encoding.
+Which colour goes first is a property of the strip, not of the protocol.
+WS2812 and WS2812B want green first, and so do most SK6812 — but WS2815 and
+the various clones are found in every permutation, with nothing on the reel to
+say which. So `ws2812_config_t` carries an `order`:
+
+```c
+const ws2812_config_t config = {
+    .pio = pio0, .pin = 6, .pixels = pixels, .length = 300,
+    .order = WS2812_ORDER_RGB,      /* zero is WS2812_ORDER_GRB */
+};
+```
+
+**Two channels swapped is always an order mismatch, never a broken encoder.**
+Ask for red and get green, ask for green and get red, with blue correct, and
+the strip is RGB where the default assumes GRB — blue sits third in both,
+which is exactly why only two of the three ever look wrong. All six
+permutations are available: `GRB RGB BRG RBG GBR BGR`.
+
+Rather than a rebuild per guess, `ws2812_set_order()` changes it on a running
+strip, so an unlabelled reel can be identified by setting a red colour and
+trying orders until it looks red. `apps/home_led` puts that behind an `order`
+console command. Put the answer in a profile once it is known.
+
+`ws2812_color_to_wire()` in `ws2812_color.h` is the single place the layout is
+expressed, and `tests/components/ws2812_color_test.c` pins down every
+permutation, including that the red/green swap above is exactly GRB against
+RGB.
 
 ## Making it look right: gamma, dithering, and hue
 
@@ -203,8 +225,20 @@ The split is what makes the colour logic host-testable (DESIGN_DOC.md section
   scale rather than shifting the colour.
 * Hardware: `make APP=tests/ws2812_test flash` — see that test's README.
 
-The blocking PIO path and RGB colour order were visually confirmed on the
-Waveshare RP2040-Zero's onboard GPIO16 pixel on 2026-08-31. External strips,
+The blocking PIO path and GRB colour order were visually confirmed on the
+Waveshare RP2040-Zero's onboard GPIO16 pixel on 2026-08-31.
+
+The DMA path and `WS2812_ORDER_RGB` were confirmed on 2026-09-03 on a
+300-pixel **WS2815** strip at 12 V behind a 5 V level shifter, driven by
+`apps/home_led` from a Pico 2 W: with the GRB default the primaries came out
+swapped exactly as described above, and selecting RGB made red, green and blue
+correct. Worth recording that this program's timing suits WS2815 at least as
+well as the part it is named for — `T0H` 250 ns and `T1H` 875 ns sit
+comfortably inside WS2815's 150–450 ns and 750–1050 ns windows, where the
+former is right on WS2812B's lower edge. WS2815 also wants a longer latch
+gap, ≥280 µs against WS2812B's 50 µs; `WS2812_RESET_US` is 300, so it is
+covered, but that is the constant to raise if the far end of a strip ever lags
+a frame. External strips,
 RGBW pixels, long-strip signal integrity, and the DMA path remain unverified on
 hardware. Gamma and dithering are verified on the host only: whether a fade
 *looks* smooth is not something a test can settle, and it wants a real strip

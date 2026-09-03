@@ -59,6 +59,11 @@ typedef struct {
     /* SK6812-style strips with a dedicated white LED clock 32 bits per pixel. */
     bool is_rgbw;
 
+    /* Which order this strip wants its colour bytes in. Zero is
+       WS2812_ORDER_GRB, which is what WS2812/WS2812B want, so a caller that
+       does not know to care gets the common case. */
+    ws2812_order_t order;
+
     /* 0 selects WS2812_DEFAULT_FREQUENCY_HZ. */
     uint32_t frequency_hz;
 
@@ -87,6 +92,7 @@ typedef struct {
     ws2812_color_t *pixels;
     uint16_t length;
     bool is_rgbw;
+    ws2812_order_t order;
     uint8_t brightness;
     const uint8_t *gamma_table;   /* NULL when correction is off */
 
@@ -146,6 +152,16 @@ uint8_t ws2812_get_brightness(const ws2812_strip_t *strip);
  * The white channel of an RGBW strip is corrected along with the others.
  */
 void ws2812_set_gamma(ws2812_strip_t *strip, const uint8_t *table);
+
+/*
+ * Change the wire order of a running strip.
+ *
+ * Here because identifying an unlabelled strip is a matter of trying orders
+ * until red is red, and doing that from a console beats doing it from a
+ * rebuild. Takes effect on the next frame.
+ */
+void ws2812_set_order(ws2812_strip_t *strip, ws2812_order_t order);
+ws2812_order_t ws2812_get_order(const ws2812_strip_t *strip);
 
 static inline uint16_t ws2812_length(const ws2812_strip_t *strip)
 {

@@ -18,7 +18,7 @@ built to do; what has actually been demonstrated is:
 | Host tests | 73, across the light model (25), the effects (20) and the Home Assistant schema (28), under ASan and UBSan |
 | Cross-builds | `pico2_w`, `pico_w`, `pico2` (no radio), both profiles, warnings as errors |
 | On a Pico 2 W | everything except the strip — see below |
-| On a strip | nothing — no strip was available |
+| On a strip | the wire order and the primaries; the rest still unseen |
 | Against Home Assistant | nothing — no instance was available; the MQTT exchange was driven by hand instead |
 
 Validated on a Pico 2 W against `broker.hivemq.com`, 2026-09-03. Every part of
@@ -42,11 +42,18 @@ this that does not need LEDs:
 * The last will works end to end: `online` → `offline` when the link dropped
   → `online` on reconnect, which is what Home Assistant reads as availability.
 
-What is still unproven is everything an eye has to judge — whether the fades
-look smooth, whether the dithering does what it is meant to at low brightness,
-whether the effects are pleasant — and Home Assistant's own handling of the
-discovery document. Record those here when a strip is to hand; see "What to
-check first" at the end.
+On a 300-pixel WS2815 strip at 12 V behind a 5 V level shifter, same date: the
+strip lights and `rgb 255 0 0`, `0 255 0` and `0 0 255` render as red, green
+and blue — **once the wire order is set to RGB**. With the GRB default the
+primaries came out swapped, which is what `APP_LED_ORDER` in the profiles is
+now set for; see [`ws2812`'s README](../../components/ws2812/README.md) for
+why two channels and not three.
+
+What is still unproven is everything else an eye has to judge — whether the
+fades look smooth, whether the dithering does what it is meant to at low
+brightness, whether the effects are pleasant, whether all 300 pixels light —
+and Home Assistant's own handling of the discovery document. Record those here
+as they are seen; see "What to check first" at the end.
 
 ## Required hardware
 
@@ -97,6 +104,7 @@ is wired correctly:
 ```text
 led> test                    toggle a wiring pattern: red at the first pixel,
                              green at the last, dim white between
+led> order [GRB|RGB|...]     the strip's wire colour order, live
 led> on / off
 led> bri 200                 brightness, 0..255
 led> rgb 255 128 0
@@ -199,9 +207,11 @@ In this order, because each one rules out the causes of the next:
 The console and network half is already done (see Status); what remains needs
 the LEDs.
 
-1. `test` — the pattern appears, red at the near end. If the colours are
-   swapped it is a clone with a different channel order, not a bug; if only
-   the first few pixels are right, suspect the 3.3 V data line.
+1. `test` — the pattern appears, red at the near end, and all of the strip
+   lights. If the colours are swapped, that is the wire order: run `order` and
+   try the six until red is red, then put the answer in the profile. If only
+   the first few pixels are right, suspect the data line rather than the
+   firmware.
 2. `status` — the LED count matches the strip.
 3. `bri 10` then `bri 250` — the fade is smooth, with no visible step
    backwards, and the low end still shows gradations rather than a staircase.

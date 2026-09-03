@@ -16,7 +16,7 @@ TEST(wire_encoding_is_left_aligned_grb)
     /* Distinct values per channel so a swapped order cannot pass. */
     const ws2812_color_t c = ws2812_rgb(0x11, 0x22, 0x33);
 
-    CHECK_EQ_U32(ws2812_color_to_wire(c, false), 0x22113300u);
+    CHECK_EQ_U32(ws2812_color_to_wire(c, false, WS2812_ORDER_GRB), 0x22113300u);
 }
 
 TEST(wire_encoding_leaves_the_low_byte_clear_for_rgb)
@@ -25,26 +25,100 @@ TEST(wire_encoding_leaves_the_low_byte_clear_for_rgb)
        a caller leaves a stale value in it. */
     const ws2812_color_t c = ws2812_rgbw(0x11, 0x22, 0x33, 0xFF);
 
-    CHECK_EQ_U32(ws2812_color_to_wire(c, false), 0x22113300u);
+    CHECK_EQ_U32(ws2812_color_to_wire(c, false, WS2812_ORDER_GRB), 0x22113300u);
 }
 
 TEST(wire_encoding_appends_white_for_rgbw)
 {
     const ws2812_color_t c = ws2812_rgbw(0x11, 0x22, 0x33, 0x44);
 
-    CHECK_EQ_U32(ws2812_color_to_wire(c, true), 0x22113344u);
+    CHECK_EQ_U32(ws2812_color_to_wire(c, true, WS2812_ORDER_GRB), 0x22113344u);
+}
+
+TEST(every_wire_order_permutes_the_three_colour_bytes)
+{
+    /*
+     * The whole point: an unlabelled strip is identified by trying these
+     * until red is red. Distinct values per channel so a wrong permutation
+     * cannot look right.
+     */
+    const ws2812_color_t c = ws2812_rgb(0x11, 0x22, 0x33);
+
+    CHECK_EQ_U32(ws2812_color_to_wire(c, false, WS2812_ORDER_GRB), 0x22113300u);
+    CHECK_EQ_U32(ws2812_color_to_wire(c, false, WS2812_ORDER_RGB), 0x11223300u);
+    CHECK_EQ_U32(ws2812_color_to_wire(c, false, WS2812_ORDER_BRG), 0x33112200u);
+    CHECK_EQ_U32(ws2812_color_to_wire(c, false, WS2812_ORDER_RBG), 0x11332200u);
+    CHECK_EQ_U32(ws2812_color_to_wire(c, false, WS2812_ORDER_GBR), 0x22331100u);
+    CHECK_EQ_U32(ws2812_color_to_wire(c, false, WS2812_ORDER_BGR), 0x33221100u);
+}
+
+TEST(the_red_green_swap_is_exactly_grb_against_rgb)
+{
+    /*
+     * The symptom that identifies a mismatched strip, pinned down: asking a
+     * GRB encoder for red produces the same bytes an RGB strip reads as
+     * green, and vice versa, while blue is untouched either way.
+     */
+    const uint32_t red_as_grb = ws2812_color_to_wire(WS2812_COLOR_RED, false, WS2812_ORDER_GRB);
+    const uint32_t green_as_rgb = ws2812_color_to_wire(WS2812_COLOR_GREEN, false, WS2812_ORDER_RGB);
+    const uint32_t green_as_grb = ws2812_color_to_wire(WS2812_COLOR_GREEN, false, WS2812_ORDER_GRB);
+    const uint32_t red_as_rgb = ws2812_color_to_wire(WS2812_COLOR_RED, false, WS2812_ORDER_RGB);
+
+    CHECK_EQ_U32(red_as_grb, green_as_rgb);
+    CHECK_EQ_U32(green_as_grb, red_as_rgb);
+
+    /* Blue sits third in both, which is why only two channels ever look
+       swapped. */
+    CHECK_EQ_U32(ws2812_color_to_wire(WS2812_COLOR_BLUE, false, WS2812_ORDER_GRB),
+                 ws2812_color_to_wire(WS2812_COLOR_BLUE, false, WS2812_ORDER_RGB));
+}
+
+TEST(white_stays_the_fourth_byte_whatever_the_order)
+{
+    const ws2812_color_t c = ws2812_rgbw(0x11, 0x22, 0x33, 0x44);
+
+    CHECK_EQ_U32(ws2812_color_to_wire(c, true, WS2812_ORDER_GRB), 0x22113344u);
+    CHECK_EQ_U32(ws2812_color_to_wire(c, true, WS2812_ORDER_RGB), 0x11223344u);
+    CHECK_EQ_U32(ws2812_color_to_wire(c, true, WS2812_ORDER_BGR), 0x33221144u);
+}
+
+TEST(order_names_round_trip)
+{
+    static const char *const expected[] = { "GRB", "RGB", "BRG", "RBG", "GBR", "BGR" };
+
+    for (unsigned i = 0; i < 6u; i++) {
+        ws2812_order_t order;
+
+        CHECK_EQ_STR(ws2812_order_name((ws2812_order_t)i), expected[i]);
+        CHECK(ws2812_order_from_name(expected[i], &order));
+        CHECK_EQ_INT((int)order, (int)i);
+    }
+
+    /* Typed at a console, so case cannot matter. */
+    ws2812_order_t order = WS2812_ORDER_GRB;
+    CHECK(ws2812_order_from_name("rgb", &order));
+    CHECK_EQ_INT((int)order, (int)WS2812_ORDER_RGB);
+    CHECK(ws2812_order_from_name("bGr", &order));
+    CHECK_EQ_INT((int)order, (int)WS2812_ORDER_BGR);
+
+    CHECK(!ws2812_order_from_name("RGBW", &order));
+    CHECK(!ws2812_order_from_name("RG", &order));
+    CHECK(!ws2812_order_from_name("", &order));
+    CHECK(!ws2812_order_from_name("XYZ", &order));
+    CHECK(!ws2812_order_from_name(NULL, &order));
+    CHECK(ws2812_order_name((ws2812_order_t)99) == NULL);
 }
 
 TEST(wire_encoding_of_black_is_zero)
 {
-    CHECK_EQ_U32(ws2812_color_to_wire(WS2812_COLOR_BLACK, false), 0u);
-    CHECK_EQ_U32(ws2812_color_to_wire(WS2812_COLOR_BLACK, true), 0u);
+    CHECK_EQ_U32(ws2812_color_to_wire(WS2812_COLOR_BLACK, false, WS2812_ORDER_GRB), 0u);
+    CHECK_EQ_U32(ws2812_color_to_wire(WS2812_COLOR_BLACK, true, WS2812_ORDER_GRB), 0u);
 }
 
 TEST(wire_encoding_of_white_fills_the_used_bits)
 {
-    CHECK_EQ_U32(ws2812_color_to_wire(WS2812_COLOR_WHITE, false), 0xFFFFFF00u);
-    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_rgbw(255, 255, 255, 255), true),
+    CHECK_EQ_U32(ws2812_color_to_wire(WS2812_COLOR_WHITE, false, WS2812_ORDER_GRB), 0xFFFFFF00u);
+    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_rgbw(255, 255, 255, 255), true, WS2812_ORDER_GRB),
                  0xFFFFFFFFu);
 }
 
@@ -63,7 +137,7 @@ TEST(zero_brightness_is_black)
 {
     const ws2812_color_t scaled = ws2812_color_scale(ws2812_rgbw(255, 255, 255, 255), 0);
 
-    CHECK_EQ_U32(ws2812_color_to_wire(scaled, true), 0u);
+    CHECK_EQ_U32(ws2812_color_to_wire(scaled, true, WS2812_ORDER_GRB), 0u);
 }
 
 TEST(half_brightness_halves_each_channel)
@@ -102,10 +176,10 @@ TEST(lerp_endpoints_are_exact)
     const ws2812_color_t from = ws2812_rgb(0, 200, 255);
     const ws2812_color_t to = ws2812_rgb(255, 10, 0);
 
-    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_lerp(from, to, 0), false),
-                 ws2812_color_to_wire(from, false));
-    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_lerp(from, to, 255), false),
-                 ws2812_color_to_wire(to, false));
+    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_lerp(from, to, 0), false, WS2812_ORDER_GRB),
+                 ws2812_color_to_wire(from, false, WS2812_ORDER_GRB));
+    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_lerp(from, to, 255), false, WS2812_ORDER_GRB),
+                 ws2812_color_to_wire(to, false, WS2812_ORDER_GRB));
 }
 
 TEST(lerp_midpoint_is_symmetric)
@@ -140,8 +214,8 @@ TEST(hsv_with_no_value_is_black)
 {
     for (unsigned h = 0; h <= 255; h++) {
         const ws2812_color_t c = ws2812_color_from_hsv((uint8_t)h, 255, 0);
-        if (ws2812_color_to_wire(c, false) != 0) {
-            CHECK_EQ_U32(ws2812_color_to_wire(c, false), 0u);
+        if (ws2812_color_to_wire(c, false, WS2812_ORDER_GRB) != 0) {
+            CHECK_EQ_U32(ws2812_color_to_wire(c, false, WS2812_ORDER_GRB), 0u);
             return;
         }
     }
@@ -150,18 +224,18 @@ TEST(hsv_with_no_value_is_black)
 TEST(hsv_sector_boundaries_are_the_pure_colours)
 {
     /* Each of the six 43-wide sectors starts on a primary or secondary. */
-    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_from_hsv(0, 255, 255), false),
-                 ws2812_color_to_wire(WS2812_COLOR_RED, false));
-    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_from_hsv(43, 255, 255), false),
-                 ws2812_color_to_wire(WS2812_COLOR_YELLOW, false));
-    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_from_hsv(86, 255, 255), false),
-                 ws2812_color_to_wire(WS2812_COLOR_GREEN, false));
-    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_from_hsv(129, 255, 255), false),
-                 ws2812_color_to_wire(WS2812_COLOR_CYAN, false));
-    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_from_hsv(172, 255, 255), false),
-                 ws2812_color_to_wire(WS2812_COLOR_BLUE, false));
-    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_from_hsv(215, 255, 255), false),
-                 ws2812_color_to_wire(WS2812_COLOR_MAGENTA, false));
+    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_from_hsv(0, 255, 255), false, WS2812_ORDER_GRB),
+                 ws2812_color_to_wire(WS2812_COLOR_RED, false, WS2812_ORDER_GRB));
+    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_from_hsv(43, 255, 255), false, WS2812_ORDER_GRB),
+                 ws2812_color_to_wire(WS2812_COLOR_YELLOW, false, WS2812_ORDER_GRB));
+    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_from_hsv(86, 255, 255), false, WS2812_ORDER_GRB),
+                 ws2812_color_to_wire(WS2812_COLOR_GREEN, false, WS2812_ORDER_GRB));
+    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_from_hsv(129, 255, 255), false, WS2812_ORDER_GRB),
+                 ws2812_color_to_wire(WS2812_COLOR_CYAN, false, WS2812_ORDER_GRB));
+    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_from_hsv(172, 255, 255), false, WS2812_ORDER_GRB),
+                 ws2812_color_to_wire(WS2812_COLOR_BLUE, false, WS2812_ORDER_GRB));
+    CHECK_EQ_U32(ws2812_color_to_wire(ws2812_color_from_hsv(215, 255, 255), false, WS2812_ORDER_GRB),
+                 ws2812_color_to_wire(WS2812_COLOR_MAGENTA, false, WS2812_ORDER_GRB));
 }
 
 TEST(hsv_at_full_saturation_peaks_at_value)
@@ -471,6 +545,10 @@ TEST_MAIN(
     RUN(wire_encoding_is_left_aligned_grb);
     RUN(wire_encoding_leaves_the_low_byte_clear_for_rgb);
     RUN(wire_encoding_appends_white_for_rgbw);
+    RUN(every_wire_order_permutes_the_three_colour_bytes);
+    RUN(the_red_green_swap_is_exactly_grb_against_rgb);
+    RUN(white_stays_the_fourth_byte_whatever_the_order);
+    RUN(order_names_round_trip);
     RUN(wire_encoding_of_black_is_zero);
     RUN(wire_encoding_of_white_fills_the_used_bits);
     RUN(full_brightness_is_the_identity);

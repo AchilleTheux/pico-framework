@@ -1,5 +1,44 @@
 #include "ws2812_color.h"
 
+/* Indexed by ws2812_order_t. */
+static const char *const order_names[] = {
+    "GRB", "RGB", "BRG", "RBG", "GBR", "BGR",
+};
+
+#define ORDER_COUNT (sizeof(order_names) / sizeof(order_names[0]))
+
+const char *ws2812_order_name(ws2812_order_t order)
+{
+    return ((unsigned)order < ORDER_COUNT) ? order_names[order] : NULL;
+}
+
+static char upper(char c)
+{
+    return (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
+}
+
+bool ws2812_order_from_name(const char *name, ws2812_order_t *out)
+{
+    if (name == NULL || out == NULL) {
+        return false;
+    }
+
+    for (unsigned i = 0; i < ORDER_COUNT; i++) {
+        unsigned k = 0;
+
+        /* Compared by hand rather than with strcasecmp(), which is a POSIX
+           extension this component has no other reason to depend on. */
+        while (k < 3u && name[k] != '\0' && upper(name[k]) == order_names[i][k]) {
+            k++;
+        }
+        if (k == 3u && name[3] == '\0') {
+            *out = (ws2812_order_t)i;
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Round-to-nearest scale of one channel: (value * numerator) / 255. */
 static uint8_t scale_channel(uint8_t value, uint8_t numerator)
 {

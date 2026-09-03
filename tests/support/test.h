@@ -12,7 +12,7 @@
  *
  *     TEST(black_is_all_zeroes)
  *     {
- *         CHECK_EQ_U32(ws2812_color_to_wire(WS2812_COLOR_BLACK, false), 0);
+ *         CHECK_EQ_U32(ws2812_color_to_wire(WS2812_COLOR_BLACK, false, WS2812_ORDER_GRB), 0);
  *     }
  *
  *     TEST_MAIN(

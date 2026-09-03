@@ -21,9 +21,15 @@ add_executable(app_home_led
 set(APP_LED_PIN   6   CACHE STRING "WS2812 data GPIO pin")
 set(APP_LED_COUNT 300 CACHE STRING "Number of LEDs on the strip")
 
+# Which order the strip wants its colour bytes in: GRB for WS2812/WS2812B,
+# RGB for many WS2815 and clones. If red comes out green, this is the setting.
+# It can also be changed live with the console's `order` command.
+set(APP_LED_ORDER "GRB" CACHE STRING "Wire colour order: GRB RGB BRG RBG GBR BGR")
+
 target_compile_definitions(app_home_led PRIVATE
     APP_LED_PIN=${APP_LED_PIN}
     APP_LED_COUNT=${APP_LED_COUNT}
+    APP_LED_ORDER="${APP_LED_ORDER}"
 )
 
 target_link_libraries(app_home_led PRIVATE

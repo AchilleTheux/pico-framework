@@ -17,7 +17,7 @@ host coverage, build coverage, and physical hardware validation.
 
 | Component | What it provides |
 |-----------|------------------|
-| [`ws2812`](components/ws2812/) | WS2812 / SK6812 LED strips, RGB and RGBW |
+| [`ws2812`](components/ws2812/) | WS2812 / WS2815 / SK6812 LED strips, any channel order |
 | [`cli`](components/cli/) | line-oriented command interpreter, transport-agnostic |
 | [`half_duplex_uart`](components/half_duplex_uart/) | 8N1 over one shared wire, for smart-servo buses |
 | [`servo_bus`](components/servo_bus/) | Dynamixel Protocol 1.0 packets, transactions, retries |
@@ -50,8 +50,10 @@ Pure logic is covered by 26 sanitizer-enabled host executables. Hardware-facing
 groups have manual applications under `apps/tests/`; a successful cross-build
 is recorded separately from a physical result. The RP2040-Zero has validated
 USB stdio and CLI, its onboard WS2812, bare-pin PIO UART loopback, persistent
-configuration on flash, and an empty I2C bus. A Pico 2 W has validated both
-radio components: `wifi` (association, address acquisition, RSSI, and
+configuration on flash, and an empty I2C bus. `ws2812`'s DMA path and its
+selectable channel order were confirmed separately on a 300-pixel WS2815 strip
+driven from a Pico 2 W by [`home_led`](apps/home_led/). That same board has
+validated both radio components: `wifi` (association, address acquisition, RSSI, and
 reconnection both from a console `connect` and from stored credentials after
 a power cycle — see [`wifi`'s README](components/wifi/README.md) for a real
 console-unresponsiveness bug found, root-caused to a Pico SDK 2.3.0 RP2350
@@ -76,12 +78,14 @@ completed an end-to-end stage, verify, in-place install, automatic reboot, and
 second transfer over a hardware UART on the RP2040-Zero.
 
 [`home_led`](apps/home_led/) is the first application here that is a product
-rather than a bench: a WS2812 strip published to Home Assistant over MQTT,
-built from six components at once. It also carries the framework's testing
-rule further than before — its light model, its effects and its Home Assistant
+rather than a bench: an LED strip published to Home Assistant over MQTT, built
+from six components at once. It also carries the framework's testing rule
+further than before — its light model, its effects and its Home Assistant
 schema call no SDK function, so all three compile into the host tests and only
-its `main.c` needs hardware to judge. That was worth doing: 73 of those tests
-exist because no strip was available to look at.
+its `main.c` needs hardware to judge. 73 tests came out of that, written
+before any of it had been seen on a strip; when one was finally driven, the
+single thing that turned out to be wrong was a strip property no test could
+have known — its channel order.
 
 The serial updater is implemented as an application service: it stages and
 verifies an image, then an opt-in RAM-resident routine installs it in place.
