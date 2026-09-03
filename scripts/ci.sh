@@ -67,6 +67,9 @@ MATRIX=(
     "pico_w:tests/wifi_test:default"
     # A radio component on a board with no radio: must still build.
     "pico2:tests/wifi_test:default"
+    "pico2_w:tests/mqtt_test:default"
+    # Same for the component layered on top of the radio.
+    "pico2:tests/mqtt_test:default"
     "pico:tests/config_test:default"
     "pico2:tests/config_test:default"
     "pico:tests/i2c_test:default"

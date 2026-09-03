@@ -12,7 +12,7 @@ of reusable components. See [DESIGN_DOC.md](DESIGN_DOC.md) for the full design.
 All 15 initial implementation priorities in DESIGN_DOC.md section 24 are
 complete: the repository and build model, reusable components, host and target
 tests, real application profiles, WiFi support, and the extension guide. The
-framework now has 18 registered components; their individual READMEs distinguish
+framework now has 21 registered components; their individual READMEs distinguish
 host coverage, build coverage, and physical hardware validation.
 
 | Component | What it provides |
@@ -33,8 +33,11 @@ host coverage, build coverage, and physical hardware validation.
 | [`persistent_config`](components/persistent_config/) | key/value settings that survive power-off |
 | [`logging`](components/logging/) | levelled logging, compile-time filtered, several sinks |
 | [`wifi`](components/wifi/) | CYW43 station-mode connection management, with reconnect |
+| [`mqtt`](components/mqtt/) | poll-driven broker session on top of that link |
 | [`bluetooth`](components/bluetooth/) | a serial console over Classic Bluetooth SPP |
+| [`can_frame`](components/can_frame/) | CAN frame, filter, and queue types, shared by both controllers |
 | [`can`](components/can/) | CAN 2.0B over one PIO block with can2040 |
+| [`mcp2515`](components/mcp2515/) | CAN 2.0B over an MCP2515 / XL2515 SPI controller |
 
 Updating a board over a serial link, with no USB involved, is built from these:
 `hex_parser` decodes the image, `firmware_update` receives and verifies it,
@@ -42,7 +45,7 @@ Updating a board over a serial link, with no USB involved, is built from these:
 on one console. [`serial_update_test`](apps/tests/serial_update_test/) is the
 worked example.
 
-Pure logic is covered by 18 sanitizer-enabled host executables. Hardware-facing
+Pure logic is covered by 22 sanitizer-enabled host executables. Hardware-facing
 groups have manual applications under `apps/tests/`; a successful cross-build
 is recorded separately from a physical result. The RP2040-Zero has validated
 USB stdio and CLI, its onboard WS2812, bare-pin PIO UART loopback, persistent
@@ -55,11 +58,17 @@ regression, and worked around during that validation) and
 `bluetooth` (pairing with no PIN prompt, the SDP serial-port record, and
 RFCOMM flow control under a deliberate flood — that validation found and
 fixed a real bug in the test application itself, not the component; see
-[`bt_console_test`'s README](apps/tests/bt_console_test/README.md)). CAN,
-real I2C devices, and smart servos still await the hardware listed by their
-test applications. The serial firmware installer has completed an end-to-end
-stage, verify, in-place install, automatic reboot, and second transfer over a
-hardware UART on the RP2040-Zero.
+[`bt_console_test`'s README](apps/tests/bt_console_test/README.md)). The same
+board has validated `mqtt` against `test.mosquitto.org`: connecting from a cold
+boot and from stored settings, a publish confirmed by an independent subscriber,
+subscribing, a message published from off-board arriving at the callback, and
+unsubscribing. That last step is what caught a bug no local test could have
+shown — inbound publishes discarded silently by lwIP, with every status the
+board reported looking correct; see [`mqtt`'s README](components/mqtt/README.md).
+CAN on either controller, real I2C devices, and smart servos still await the
+hardware listed by their test applications. The serial firmware installer has
+completed an end-to-end stage, verify, in-place install, automatic reboot, and
+second transfer over a hardware UART on the RP2040-Zero.
 
 The serial updater is implemented as an application service: it stages and
 verifies an image, then an opt-in RAM-resident routine installs it in place.
@@ -328,6 +337,7 @@ Every application builds warning-free with `-Werror` for:
 | `rp2040_zero` | rp2040      | Armv6-M — Waveshare RP2040-Zero |
 | `pico2`    | rp2350-arm-s   | Armv8-M mainline |
 | `pico2_w`  | rp2350-arm-s   | Armv8-M mainline |
+| `rp2350_can` | rp2350-arm-s | Armv8-M mainline — Waveshare RP2350-CAN, a custom header in `boards/` |
 | `bras_attrape_caisse` | rp2040 | Armv6-M — a custom header in `boards/` |
 
 ## Next steps
