@@ -5,10 +5,17 @@
 # the strip work, and CI keeps that path compiled.
 
 add_executable(app_home_led
-    main.c
-    light.c
-    effects.c
-    ha.c
+    main.c        # startup and the loop
+    app.h         # the shared context every module below is handed
+
+    light.c       # the model      -- host-tested, no SDK
+    effects.c     # the frames     -- host-tested, no SDK
+    ha.c          # the schema     -- host-tested, no SDK
+
+    settings.c    # flash, and the commands that fill it
+    net.c         # wifi, mqtt and the Home Assistant announcement
+    render.c      # frames onto the strip, and the status LED
+    console.c     # the command table and the interpreter
 )
 
 # ------------------------------------------------------------------------------
@@ -34,7 +41,8 @@ target_compile_definitions(app_home_led PRIVATE
 
 target_link_libraries(app_home_led PRIVATE
     pico_stdlib
-    pico_framework::cli               # console over USB
+    pico_framework::cli               # console over USB, with history
+    pico_framework::firmware_update   # reflashing over that same console
     pico_framework::json              # the Home Assistant payloads
     pico_framework::mqtt              # the broker session
     pico_framework::persistent_config # credentials and the light's own state
@@ -49,6 +57,7 @@ pico_enable_stdio_uart(app_home_led 0)
 # image has to stay inside the application region.
 pico_framework_reserve_flash_layout(app_home_led)
 
-pico_framework_set_warnings(main.c light.c effects.c ha.c)
+pico_framework_set_warnings(main.c light.c effects.c ha.c settings.c net.c render.c
+                            console.c)
 
 pico_add_extra_outputs(app_home_led)

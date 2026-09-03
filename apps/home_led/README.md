@@ -26,6 +26,11 @@ this that does not need LEDs:
 
 * Boots, restores its stored settings across a reflash, associates, and
   connects to the broker with no console involvement.
+* Command history recalls previous lines with the arrow keys, erasing the
+  current one properly, and re-runs a recalled line on Enter.
+* A 382 KiB image transferred over the console at ~197 records/s, staged and
+  verified against its CRC-32 — while the light carried on rendering. `fwapply`
+  itself is still unexercised here.
 * Publishes a 634-byte discovery document, its state, and `online` — all
   retained, all received intact by an independent subscriber. That document is
   past lwIP's 256-byte default output ring buffer, so it also exercises the
@@ -115,6 +120,34 @@ led> status                  the light, the strip, the link and the broker
 led> announce                republish the discovery document
 ```
 
+Up and down recall previous commands: eight lines of history, sized separately
+from the line buffer because that one has to hold a 521-character Intel HEX
+record and eight slots of *that* would be 4.8 KiB spent remembering lines
+nobody typed.
+
+## Reflashing over the same console
+
+The board carries the framework's serial updater, so a new image goes over the
+console with no USB and no BOOTSEL — which is the point for a light in a fixed
+installation, where the console is reachable when the board is not.
+
+```bash
+make BOARD=pico2_w APP=home_led flash-serial PORT=/dev/ttyACM0          # stage and verify
+make BOARD=pico2_w APP=home_led flash-serial PORT=/dev/ttyACM0 APPLY=1  # and install it
+```
+
+`fwbegin` / `fwstatus` / `fwverify` are safe to run on any board: they only
+touch the staging half of flash. `fwapply` is the one that overwrites the
+running image and reboots, and the profiles here turn it on
+(`FIRMWARE_SERVICE_ENABLE_APPLY`). Read
+[`serial_update_test`](../tests/serial_update_test/README.md) before relying
+on it.
+
+A transfer and an interactive session share the link without interfering:
+records begin with `:`, which `raw_line_prefix` marks as not-for-human-eyes,
+so an upload is neither echoed character by character nor recorded into
+history.
+
 ## The effects
 
 | | |
@@ -132,20 +165,33 @@ in the host tests holds the list and the parser together.
 
 ## How it is put together
 
+Split by what each part *needs*, not by what it does:
+
 ```text
-main.c      the only file that touches the Pico SDK: settings, polling,
-            rendering, and moving payloads between the broker and ha.c
+main.c      startup and the loop, and nothing else
+app.h       the one context every module below is handed
+
 light.c     the model -- power, brightness, RGB or colour temperature,
-            effect, and the two fades
-effects.c   what reaches the strip, per effect
+            effect, and the two fades          <- no SDK, host-tested
+effects.c   what reaches the strip, per effect <- no SDK, host-tested
 ha.c        the Home Assistant topics, discovery document and JSON
+                                               <- no SDK, host-tested
+
+settings.c  what survives a power cut, and the commands that set it
+net.c       the link, the broker session, and the announcement
+render.c    frames onto the strip, and the onboard status LED
+console.c   the command table and the interpreter
 ```
 
-`light`, `effects` and `ha` call no SDK function, so all three compile
-directly into the host tests — `tests/apps/home_led_*_test.c`. That is the
-same split `ws2812.c` and `ws2812_color.c` use, applied to an application: it
-leaves `main.c` as the only part that needs hardware to judge, which matters a
-great deal when there is no hardware to judge it with.
+The first three call no SDK function, so all three compile directly into the
+host tests — `tests/apps/home_led_*_test.c`. That is the same split `ws2812.c`
+and `ws2812_color.c` use, applied to an application: it leaves the wiring as
+the only part that needs hardware to judge.
+
+The wiring shares one `app_t` rather than a drawer of file statics. Every CLI
+command already receives a `user_data` pointer; that pointer is the app, so a
+command reaches the light through its argument instead of through a static
+that happens to be in scope — the same rule the components follow.
 
 ### Brightness, gamma and dithering
 

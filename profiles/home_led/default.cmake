@@ -12,3 +12,16 @@ set(APP_LED_COUNT 300 CACHE STRING "Number of LEDs on the strip")
 # This strip is a WS2815 that wants red first, confirmed on hardware: with the
 # GRB default, `rgb 255 0 0` lit it green and `rgb 0 255 0` lit it red.
 set(APP_LED_ORDER "RGB" CACHE STRING "Wire colour order")
+
+# ------------------------------------------------------------------------------
+# Reflashing over the console
+# ------------------------------------------------------------------------------
+# `fwbegin` / `fwverify` are safe anywhere; `fwapply` overwrites the running
+# image and reboots, which is the one step that can leave a board needing
+# BOOTSEL. It is on here because a light in a fixed installation is exactly
+# the case the serial updater exists for -- the console is reachable when the
+# board is not.
+#
+#   make BOARD=pico2_w APP=home_led flash-serial PORT=/dev/ttyACM0 APPLY=1
+set(FIRMWARE_SERVICE_ENABLE_APPLY ON CACHE BOOL
+    "Allow the running firmware to install a staged image")
