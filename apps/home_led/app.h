@@ -85,7 +85,7 @@ typedef struct {
 } stored_settings_t;
 
 typedef struct {
-    /* The light, and the animation running on it. */
+    /* The light, and the animation selected for it. */
     light_t light;
     effects_t effects;
 

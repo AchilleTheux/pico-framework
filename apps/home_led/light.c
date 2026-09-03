@@ -163,10 +163,10 @@ void light_init(light_t *light, uint32_t now_ms)
 
     memset(light, 0, sizeof(*light));
 
-    light->on = true;
-    light->brightness = 128;
+    light->on = false;
+    light->brightness = LIGHT_DEFAULT_BRIGHTNESS;
     light->color = ws2812_rgb(255, 255, 255);
-    light->mireds = 250;
+    light->mireds = LIGHT_DEFAULT_MIREDS;
     light->color_mode = LIGHT_COLOR_MODE_TEMP;
     light->effect = LIGHT_EFFECT_SOLID;
 
@@ -299,7 +299,7 @@ void light_restore(light_t *light, const light_settings_t *settings, uint32_t no
     light->mireds = (settings->mireds >= LIGHT_MIREDS_MIN &&
                      settings->mireds <= LIGHT_MIREDS_MAX)
         ? settings->mireds
-        : (uint16_t)250;
+        : (uint16_t)LIGHT_DEFAULT_MIREDS;
     light->color_mode = (settings->color_mode == LIGHT_COLOR_MODE_RGB)
         ? LIGHT_COLOR_MODE_RGB
         : LIGHT_COLOR_MODE_TEMP;

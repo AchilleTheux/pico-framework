@@ -14,7 +14,7 @@ add_executable(app_home_led
 
     settings.c    # flash, and the commands that fill it
     net.c         # wifi, mqtt and the Home Assistant announcement
-    render.c      # frames onto the strip, and the status LED
+    render.c      # frames onto the strip, and the onboard LED
     console.c     # the command table and the interpreter
 )
 

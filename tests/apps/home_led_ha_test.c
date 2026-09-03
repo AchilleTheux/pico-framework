@@ -192,6 +192,7 @@ TEST(state_reports_rgb_mode_with_a_colour_and_no_temperature)
 
     CHECK(ha_init(&ha, "pico1", NULL));
     light_init(&light, 0);
+    light_set_power(&light, true, 0);
     light_set_color(&light, ws2812_rgb(10, 200, 30), 0);
     light_set_brightness(&light, 180, 0);
     settle(&light);

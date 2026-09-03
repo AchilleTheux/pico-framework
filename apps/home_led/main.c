@@ -9,7 +9,7 @@
  *   ha.c        the Home Assistant topics, discovery document and JSON
  *   settings.c  what survives a power cut, and the commands that set it
  *   net.c       the link, the broker session, and the announcement
- *   render.c    frames onto the strip, and the onboard status LED
+ *   render.c    frames onto the strip, and the onboard LED
  *   console.c   the command table and the interpreter
  *
  * The first three call no Pico SDK function, so they compile into the host
@@ -42,7 +42,6 @@ static app_t app;
 int main(void)
 {
     stdio_init_all();
-    sleep_ms(2000);
 
     const uint32_t started_ms = app_now_ms();
 
@@ -54,6 +53,13 @@ int main(void)
 
     effects_init(&app.effects, started_ms);
     render_init(&app);
+
+    /* Clear pixels that may still be latched from before a soft reboot. Do
+       this before waiting for the USB console, so the requested boot-off
+       state takes effect immediately rather than two seconds later. */
+    render_frame(&app, started_ms);
+
+    sleep_ms(2000);
 
     if (!console_init(&app)) {
         /* A table that did not fit, or a stream the interpreter refused.
@@ -70,6 +76,7 @@ int main(void)
     /* After the banner, because net_init() reports its own failures through
        the console. */
     net_init(&app);
+    render_status_led_off(&app);
     net_start_if_configured(&app);
 
     uint32_t last_frame_ms = started_ms;
@@ -116,7 +123,5 @@ int main(void)
                 app.last_change_ms = now_ms;
             }
         }
-
-        render_heartbeat(&app, now_ms);
     }
 }

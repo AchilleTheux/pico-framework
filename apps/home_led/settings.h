@@ -3,11 +3,12 @@
  *
  * Two kinds of thing, kept together because they share a flash store and a
  * save: the credentials and addresses typed in once during setup, and the
- * light's own state, which changes constantly and is written back on a delay.
+ * light's preferences, which change constantly and are written back on a
+ * delay. The boot policy still forces the visible state to off/solid/3000 K.
  *
  * Nothing here is compiled in (DESIGN_DOC.md section 13). A board with no
- * stored settings comes up with a usable light and an idle radio, and says so
- * on the console.
+ * stored settings comes up with a safe light and an idle radio, and says so on
+ * the console.
  */
 
 #ifndef HOME_LED_SETTINGS_H
@@ -19,9 +20,9 @@
 #include "app.h"
 
 /*
- * Open the flash store and adopt everything in it: the strings, and then the
- * light, restored with its fades already finished so the strip lights at the
- * stored values rather than ramping up to them.
+ * Open the flash store and adopt the strings and light preferences. Power,
+ * effect and colour mode deliberately start at off, solid, 3000 K; stored
+ * brightness is retained for the next turn-on.
  */
 void settings_load(app_t *app, uint32_t now_ms);
 

@@ -52,8 +52,10 @@ static void load_strings(app_t *app)
 }
 
 /*
- * Restore the light, so a board that lost power comes back the way it was
- * rather than at some default nobody chose.
+ * Restore the user's brightness and RGB preferences, then apply the fixed
+ * startup policy: off, solid, and 3000 K colour-temperature mode. This makes
+ * boot safe and predictable even when an earlier image saved an active
+ * rainbow in flash.
  *
  * Every field goes through light_restore(), which validates them -- this data
  * comes out of flash, where a half-finished write or an older firmware can
@@ -66,24 +68,18 @@ static void load_light(app_t *app, uint32_t now_ms)
     light_settings_t stored;
     uint32_t value;
 
-    config_get_u32(store, KEY_LIGHT_ON, &value, 1u);
-    stored.on = (value != 0u);
+    stored.on = false;
 
-    config_get_u32(store, KEY_LIGHT_BRIGHTNESS, &value, 128u);
+    config_get_u32(store, KEY_LIGHT_BRIGHTNESS, &value, LIGHT_DEFAULT_BRIGHTNESS);
     stored.brightness = (uint8_t)(value > 255u ? 255u : value);
 
     config_get_u32(store, KEY_LIGHT_RGB, &value, 0xFFFFFFu);
     stored.color = ws2812_rgb((uint8_t)(value >> 16), (uint8_t)(value >> 8),
                               (uint8_t)value);
 
-    config_get_u32(store, KEY_LIGHT_MIREDS, &value, 250u);
-    stored.mireds = (uint16_t)(value > 65535u ? 65535u : value);
-
-    config_get_u32(store, KEY_LIGHT_MODE, &value, (uint32_t)LIGHT_COLOR_MODE_TEMP);
-    stored.color_mode = (light_color_mode_t)value;
-
-    config_get_u32(store, KEY_LIGHT_EFFECT, &value, (uint32_t)LIGHT_EFFECT_SOLID);
-    stored.effect = (light_effect_t)value;
+    stored.mireds = LIGHT_DEFAULT_MIREDS;
+    stored.color_mode = LIGHT_COLOR_MODE_TEMP;
+    stored.effect = LIGHT_EFFECT_SOLID;
 
     light_restore(&app->light, &stored, now_ms);
 }

@@ -52,6 +52,11 @@
 #define LIGHT_MIREDS_MIN 153u
 #define LIGHT_MIREDS_MAX 500u
 
+/* The state prepared for a board that has no stored light preferences. 333
+   mired is approximately 3000 K (1000000 / 333 = 3003 K). */
+#define LIGHT_DEFAULT_BRIGHTNESS 128u
+#define LIGHT_DEFAULT_MIREDS 333u
+
 /*
  * The effects offered, and the order they appear in the Home Assistant
  * effect list. Adding one means adding a name here, a renderer in effects.c,
@@ -126,9 +131,9 @@ typedef struct {
 } light_t;
 
 /*
- * A sane light on a board that has never been configured: on, mid brightness,
- * warm white, solid. Both fades start already finished, so the first frame
- * rendered is the requested one rather than a ramp up from black.
+ * A safe light on a board that has never been configured: off, mid brightness,
+ * 3000 K white, solid. Both fades start already finished, so turning it on
+ * shows the requested settings rather than ramping up from black.
  */
 void light_init(light_t *light, uint32_t now_ms);
 

@@ -4,10 +4,6 @@
 #include "pico/cyw43_arch.h"
 #endif
 
-/* Slowly once there is a broker session, quickly while there is not. */
-#define HEARTBEAT_LINKED_MS 1000u
-#define HEARTBEAT_SEARCHING_MS 150u
-
 void render_init(app_t *app)
 {
     ws2812_order_t order;
@@ -68,30 +64,17 @@ void render_frame(app_t *app, uint32_t now_ms)
     (void)ws2812_show_async(&app->strip);
 }
 
-void render_heartbeat(app_t *app, uint32_t now_ms)
+void render_status_led_off(app_t *app)
 {
 #if WIFI_SUPPORTED
-    static uint32_t last_ms;
-    static bool lit;
-
     /* The LED hangs off the CYW43, so it is only reachable once wifi_init()
        has brought the chip up. Poking it after a failed init would be a call
        into a driver that was never started. */
     if (!app->radio_ready) {
         return;
     }
-
-    const uint32_t interval =
-        mqtt_is_connected(&app->mqtt) ? HEARTBEAT_LINKED_MS : HEARTBEAT_SEARCHING_MS;
-
-    if (now_ms - last_ms < interval) {
-        return;
-    }
-    last_ms = now_ms;
-    lit = !lit;
-    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, lit);
+    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, false);
 #else
     (void)app;
-    (void)now_ms;
 #endif
 }

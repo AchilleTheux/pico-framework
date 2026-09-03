@@ -1,8 +1,8 @@
 # home_led
 
 A WS2812 strip driven as a Home Assistant light: discovered automatically over
-MQTT, controlled from the app or from a USB console, and remembered across a
-power cut.
+MQTT, controlled from the app or from a USB console, and configured from flash.
+Every boot leaves the strip off, ready to turn on as solid 3000 K white.
 
 ```bash
 make BOARD=pico2_w APP=home_led flash
@@ -24,8 +24,9 @@ built to do; what has actually been demonstrated is:
 Validated on a Pico 2 W against `broker.hivemq.com`, 2026-09-03. Every part of
 this that does not need LEDs:
 
-* Boots, restores its stored settings across a reflash, associates, and
-  connects to the broker with no console involvement.
+* Boots, restores its network settings and preferred brightness across a
+  reflash, starts the strip off at solid 3000 K, associates, and connects to
+  the broker with no console involvement.
 * Command history recalls previous lines with the arrow keys, erasing the
   current one properly, and re-runs a recalled line on Enter.
 * A 382 KiB image transferred over the console, staged and verified against
@@ -44,8 +45,9 @@ this that does not need LEDs:
   power, colour or effect. This is the behaviour a slider drag depends on.
 * Reports an effect name it does not have, and refuses a payload that is not a
   command (`[1,2,3]`), rather than silently doing nothing.
-* Saves to flash ten seconds after the last change and not before, and comes
-  back with the same effect, brightness and colour after a reboot.
+* Saves to flash ten seconds after the last change and not before. On reboot,
+  stored brightness is retained while power, effect and colour temperature
+  return to off, Solid and 3000 K.
 * The last will works end to end: `online` → `offline` when the link dropped
   → `online` on reconnect, which is what Home Assistant reads as availability.
 
@@ -185,7 +187,7 @@ ha.c        the Home Assistant topics, discovery document and JSON
 
 settings.c  what survives a power cut, and the commands that set it
 net.c       the link, the broker session, and the announcement
-render.c    frames onto the strip, and the onboard status LED
+render.c    frames onto the strip, and keeps the onboard LED off
 console.c   the command table and the interpreter
 ```
 
@@ -236,9 +238,10 @@ actually changed. Home Assistant sends a message per step while a slider is
 dragged; writing each one would be dozens of erase/program cycles for one
 gesture. `light.generation` is what makes "actually changed" cheap to ask.
 
-On boot they are restored with both fades already finished, and every field is
-validated on the way in: this data comes from flash, and an effect index past
-the end of the table would be read straight out of the name array.
+Boot has a deliberate safety override: it retains the stored brightness and
+RGB preference, but starts off with the Solid effect in colour-temperature
+mode at 333 mired (about 3000 K). Both fades start already finished. Thus an
+older saved ON/Rainbow state cannot relight the strip during a reboot.
 
 ### Reconnecting
 
@@ -282,7 +285,7 @@ differences worth knowing about:
 
 * That firmware declared two strips but only ever drove one — the second had
   no length and no pin, and every effect looped over `NB_RGB_STRIP - 1`. This
-  drives one strip and uses the onboard LED for status instead.
+  drives one strip and explicitly keeps the onboard LED off.
 * Its brightness scaling divided by 256 rather than 255, so full white never
   quite reached 255. `ws2812_color_scale()` rounds correctly.
 * Its fade state machine kept an `int *` and a `uint8_t *` in one struct with

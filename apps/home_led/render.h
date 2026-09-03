@@ -1,5 +1,5 @@
 /*
- * render - putting frames on the strip, and the board's own status LED.
+ * render - putting frames on the strip, and controlling the board's own LED.
  *
  * The strip half of the application: claim a state machine, and once every
  * FRAME_INTERVAL_MS hand effects.c a buffer and hand the result to DMA.
@@ -30,8 +30,7 @@ void render_init(app_t *app);
  */
 void render_frame(app_t *app, uint32_t now_ms);
 
-/* Blink the onboard LED: slowly with a broker session, quickly without, so a
-   board with no console still says where it got to. */
-void render_heartbeat(app_t *app, uint32_t now_ms);
+/* Explicitly turn off the radio module's onboard LED once the CYW43 is ready. */
+void render_status_led_off(app_t *app);
 
 #endif /* HOME_LED_RENDER_H */

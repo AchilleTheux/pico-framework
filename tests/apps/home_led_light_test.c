@@ -75,14 +75,16 @@ TEST(setting_an_out_of_range_effect_leaves_the_current_one_running)
  * Defaults
  * -------------------------------------------------------------------------*/
 
-TEST(a_fresh_light_is_usable_without_any_stored_settings)
+TEST(a_fresh_light_starts_off_at_solid_3000k)
 {
     light_t light;
 
     light_init(&light, 12345);
 
-    CHECK(light.on);
+    CHECK(!light.on);
     CHECK_EQ_INT((int)light.effect, (int)LIGHT_EFFECT_SOLID);
+    CHECK_EQ_INT((int)light.color_mode, (int)LIGHT_COLOR_MODE_TEMP);
+    CHECK_EQ_INT(light.mireds, LIGHT_DEFAULT_MIREDS);
 
     /* Both fades start finished, so the very first frame shows the settings
        rather than ramping up to them from black. */
@@ -423,10 +425,10 @@ TEST(the_generation_counter_moves_only_on_a_real_change)
 
     uint32_t generation = light.generation;
 
-    light_set_power(&light, true, WELL_PAST);            /* already on */
+    light_set_power(&light, false, WELL_PAST);           /* already off */
     CHECK_EQ_INT((int)light.generation, (int)generation);
 
-    light_set_power(&light, false, WELL_PAST);
+    light_set_power(&light, true, WELL_PAST);
     CHECK(light.generation > generation);
     generation = light.generation;
 
@@ -547,8 +549,9 @@ TEST(nonsense_out_of_flash_falls_back_instead_of_being_believed)
 
     /* A completely absent stored block is the same as a fresh light. */
     light_restore(&light, NULL, 0);
-    CHECK(light.on);
+    CHECK(!light.on);
     CHECK_EQ_INT((int)light.effect, (int)LIGHT_EFFECT_SOLID);
+    CHECK_EQ_INT(light.mireds, LIGHT_DEFAULT_MIREDS);
 }
 
 TEST(the_easing_curve_never_goes_backwards)
@@ -605,7 +608,7 @@ TEST_MAIN(
     RUN(the_effect_list_is_the_one_home_assistant_was_told_about);
     RUN(an_unknown_effect_name_is_refused);
     RUN(setting_an_out_of_range_effect_leaves_the_current_one_running);
-    RUN(a_fresh_light_is_usable_without_any_stored_settings);
+    RUN(a_fresh_light_starts_off_at_solid_3000k);
     RUN(a_brightness_change_arrives_gradually_and_completely);
     RUN(a_fade_never_goes_backwards_or_overshoots);
     RUN(a_fade_eases_at_both_ends);

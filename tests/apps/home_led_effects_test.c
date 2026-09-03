@@ -65,6 +65,7 @@ static void prepare(light_t *light, light_effect_t effect, uint8_t brightness,
                     ws2812_color_t color)
 {
     light_init(light, 0);
+    light_set_power(light, true, 0);
     light_set_color(light, color, 0);
     light_set_brightness(light, brightness, 0);
     light_set_effect(light, effect, 0);
@@ -181,6 +182,7 @@ TEST(colour_temperature_mode_reaches_the_strip)
     canvas_init(&canvas);
     effects_init(&effects, 0);
     light_init(&light, 0);
+    light_set_power(&light, true, 0);
     light_set_brightness(&light, 255, 0);
     light_set_mireds(&light, LIGHT_MIREDS_MAX, 0);
     light_tick(&light, 100000u);
