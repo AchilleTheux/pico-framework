@@ -273,6 +273,15 @@ target_include_directories(wifi_policy_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/wifi/include"
 )
 
+host_test(mqtt_policy_test
+    SOURCES
+        tests/components/mqtt_policy_test.c
+        components/mqtt/mqtt_policy.c
+)
+target_include_directories(mqtt_policy_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/mqtt/include"
+)
+
 host_test(bt_stream_test
     SOURCES
         tests/components/bt_stream_test.c

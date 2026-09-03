@@ -20,6 +20,7 @@ set(PICO_FRAMEWORK_COMPONENTS
     i2c_device
     vl53l0x
     wifi
+    mqtt
     bluetooth
     persistent_config
     logging

@@ -87,4 +87,28 @@
 #endif
 #define LWIP_CHECKSUM_CTRL_PER_NETIF 1
 
+/*
+ * lwIP's own timer pool, sized for exactly what this configuration uses: TCP
+ * retransmit (1) + IP reassembly (1) + ARP (1) + DHCP (2) + DNS (1) = 6,
+ * which is lwIP's own LWIP_NUM_SYS_TIMEOUT_INTERNAL default for these
+ * settings.
+ *
+ * +1 for the mqtt component, which reuses this file -- it depends on wifi for
+ * the network stack -- and keeps one cyclic timer running for as long as a
+ * client is connected. lwIP's own accounting has no idea mqtt.c exists:
+ * "You need to increase MEMP_NUM_SYS_TIMEOUT by one if you use MQTT!"
+ * (lib/pico-sdk/lib/lwip/doc/mqtt_client.txt). Without this the pool empties
+ * and lwIP asserts the moment a broker connection is attempted -- confirmed
+ * on a Pico 2 W running mqtt_test: `mqttconnect` panicked with exactly
+ * "sys_timeout: timeout != NULL, pool MEMP_SYS_TIMEOUT is empty" before this
+ * line was added.
+ *
+ * A second concurrent mqtt_t connection needs one more. This is a literal
+ * rather than an expression built from LWIP_NUM_SYS_TIMEOUT_INTERNAL because
+ * that macro is not yet defined when lwipopts.h is read -- lwip/opt.h
+ * includes this file before computing it -- so recompute by hand if a
+ * setting above changes.
+ */
+#define MEMP_NUM_SYS_TIMEOUT 7
+
 #endif /* PICO_FRAMEWORK_LWIPOPTS_H */
