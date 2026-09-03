@@ -28,9 +28,11 @@ this that does not need LEDs:
   connects to the broker with no console involvement.
 * Command history recalls previous lines with the arrow keys, erasing the
   current one properly, and re-runs a recalled line on Enter.
-* A 382 KiB image transferred over the console at ~197 records/s, staged and
-  verified against its CRC-32 — while the light carried on rendering. `fwapply`
-  itself is still unexercised here.
+* A 382 KiB image transferred over the console, staged and verified against
+  its CRC-32 — while the light carried on rendering — and then installed with
+  `fwapply`, after which the board rebooted into it and came back configured.
+* Five consecutive unpaced transfers at 2203–2205 records/s, each verifying,
+  which is what the USB-CDC pacing default is based on.
 * Publishes a 634-byte discovery document, its state, and `online` — all
   retained, all received intact by an independent subscriber. That document is
   past lwIP's 256-byte default output ring buffer, so it also exercises the
@@ -142,6 +144,10 @@ running image and reboots, and the profiles here turn it on
 (`FIRMWARE_SERVICE_ENABLE_APPLY`). Read
 [`serial_update_test`](../tests/serial_update_test/README.md) before relying
 on it.
+
+Over USB that takes about twelve seconds for a 380 KiB image; the pacing that
+a real UART needs is skipped, chosen from the port name. See the framework
+README's "Flashing without the BOOTSEL button".
 
 A transfer and an interactive session share the link without interfering:
 records begin with `:`, which `raw_line_prefix` marks as not-for-human-eyes,

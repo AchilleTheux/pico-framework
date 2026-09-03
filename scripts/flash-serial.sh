@@ -34,11 +34,9 @@ APPLY="${SERIAL_UPDATE_APPLY:-0}"
 # its profile configured.
 BAUD="${SERIAL_UPDATE_BAUD:-115200}"
 
-# Pause after each record; see stream_records() in serial_update.py for why
-# this exists (a blocking flash write can silently drop a byte on a real
-# UART if records arrive faster than this). 0 to disable, e.g. over a USB
-# CDC port, which has much deeper buffering and no equivalent stall.
-RECORD_DELAY="${SERIAL_UPDATE_RECORD_DELAY:-0.005}"
+# Pause after each record. Chosen from the port below, once it is known;
+# SERIAL_UPDATE_RECORD_DELAY overrides that choice.
+RECORD_DELAY="${SERIAL_UPDATE_RECORD_DELAY:-}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DRIVER="$ROOT/scripts/serial_update.py"
@@ -84,6 +82,35 @@ fi
 [[ -w "$PORT" ]] || die "cannot write to $PORT (a dialout/uucp group membership is usually what is missing)"
 
 # ---------------------------------------------------------------------------
+# Pacing
+# ---------------------------------------------------------------------------
+# Records need pacing on a real UART and not over USB, and the port name says
+# which this is. What matters is what sits on the *board* side of the link:
+#
+#   /dev/ttyACM*, /dev/cu.usbmodem*   the board is itself the USB device, so
+#                                     its CDC endpoint NAKs when it cannot
+#                                     accept more and the host retries. A
+#                                     blocking flash write stalls the transfer
+#                                     for a moment; it cannot lose a byte.
+#
+#   /dev/ttyUSB*, and anything else   a USB-to-serial bridge, so the board is
+#                                     receiving on a real UART with a 32-byte
+#                                     hardware FIFO and no flow control. A
+#                                     page flush that outlasts the FIFO drops a
+#                                     byte, which fails the whole transfer.
+#                                     See stream_records() in serial_update.py.
+#
+# The difference is worth having: over USB CDC the paced default costs about
+# eleven times the wall clock -- 197 records/s against 2200, two minutes
+# against twelve seconds for a 380 KiB image.
+if [[ -z "$RECORD_DELAY" ]]; then
+    case "$PORT" in
+        /dev/ttyACM*|/dev/cu.usbmodem*) RECORD_DELAY=0 ;;
+        *)                              RECORD_DELAY=0.005 ;;
+    esac
+fi
+
+# ---------------------------------------------------------------------------
 # Send it
 # ---------------------------------------------------------------------------
 
@@ -113,11 +140,13 @@ if ! python3 "$DRIVER" "${args[@]}"; then
       rate, a real UART does not. Set SERIAL_UPDATE_BAUD to change it.
     - was the image built for this board? An image linked for a different
       flash size can be larger than the staging region.
-    - a verification failure a few hundred bytes short of the image size, on
-      a real UART, usually means a page-flush's flash write outran the
-      record-delay pacing and dropped a byte. Try a larger
-      SERIAL_UPDATE_RECORD_DELAY (currently ${RECORD_DELAY}s) before
-      suspecting the link itself.
+    - a verification failure a few hundred bytes short of the image size
+      usually means a page-flush's flash write outran the record-delay pacing
+      and dropped a byte. Try a larger SERIAL_UPDATE_RECORD_DELAY (this run
+      used ${RECORD_DELAY}s, chosen from the port name) before suspecting the
+      link itself. A USB CDC port defaults to 0 because its flow control
+      makes that impossible; if this port is a bridge to a real UART despite
+      its name, set 0.005.
 EOF
     exit 1
 fi

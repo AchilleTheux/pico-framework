@@ -193,6 +193,12 @@ def stream_records(port, path, quiet, record_delay):
     for code or data while it is being written to). The CLI's UART reader is
     plain-polled, so all that is left to absorb bytes arriving during that
     stall is the UART's 32-byte hardware FIFO — about 2.8 ms at 115200 baud.
+
+    None of which applies over USB CDC, where the board is the USB device: its
+    endpoint NAKs when it cannot accept more and the host retries, so a page
+    flush stalls the transfer without losing anything. flash-serial.sh reads
+    that off the port name and passes 0 for a /dev/ttyACM* port, which is
+    about eleven times faster.
     Sent flat out, this driver used to outrun that comfortably: a page-flush
     stall drops a byte, which corrupts that one HEX record's checksum, which
     the device treats as a fatal transfer error — and every record after
@@ -242,7 +248,9 @@ def main():
                              "flush's blocking flash write cannot overrun the "
                              "UART's hardware FIFO and silently drop a byte "
                              "(default 5 ms; 4 ms was the measured minimum on "
-                             "the reference board — see stream_records())")
+                             "the reference board — see stream_records()). "
+                             "0 over USB CDC, which cannot drop a byte; "
+                             "flash-serial.sh picks that from the port name")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 

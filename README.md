@@ -285,7 +285,15 @@ The port may also be a bare make goal (`make ... flash-serial /dev/ttyACM0`).
 With no port given, the script selects the only serial port or lists the choices.
 It stages and verifies by default; add `APPLY=1` to invoke the deliberately
 opt-in installer. `SERIAL_UPDATE_BAUD` selects the line rate for a real UART
-(USB CDC ignores it). See
+(USB CDC ignores it).
+
+Records are paced on a real UART and sent flat out over USB, and the port name
+decides which: a `/dev/ttyACM*` port means the board is itself the USB device,
+so its endpoint NAKs when it cannot keep up and a blocking flash write cannot
+lose a byte. A `/dev/ttyUSB*` port is a bridge to a real UART, where it can.
+That is worth about elevenfold — 2200 records/s against 197, twelve seconds
+against two minutes for a 380 KiB image. `SERIAL_UPDATE_RECORD_DELAY`
+overrides the choice. See
 [`serial_update_test`](apps/tests/serial_update_test/README.md) for the safe
 recovery assumptions and complete procedure.
 
