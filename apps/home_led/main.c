@@ -472,7 +472,17 @@ static int cmd_status(cli_t *c, void *user_data)
     cli_printf(c, "\r\nbroker       %s:%s, %s\r\n",
                broker_host[0] != '\0' ? broker_host : "<unset>", broker_port_text,
                mqtt_state_name(mqtt_state(&mqtt)));
-    cli_printf(c, "device id    %s\r\n", device_id);
+    /*
+     * The id the topics were actually built from, which is the one that
+     * matters. It is only the stored setting until the next boot, and showing
+     * that instead makes `status` disagree with the topics printed right
+     * under it -- which is confusing at exactly the moment it is being
+     * changed.
+     */
+    cli_printf(c, "device id    %s\r\n", ha.device_id[0] != '\0' ? ha.device_id : "<unusable>");
+    if (strcmp(ha.device_id, device_id) != 0) {
+        cli_printf(c, "             %s stored; reboot to use it\r\n", device_id);
+    }
     cli_printf(c, "topics       %s\r\n             %s\r\n", ha.topic_command,
                ha.topic_state);
     cli_printf(c, "sessions     %lu, dropped %lu\r\n",

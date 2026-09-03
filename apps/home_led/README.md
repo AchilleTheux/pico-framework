@@ -17,15 +17,36 @@ built to do; what has actually been demonstrated is:
 |---|---|
 | Host tests | 73, across the light model (25), the effects (20) and the Home Assistant schema (28), under ASan and UBSan |
 | Cross-builds | `pico2_w`, `pico_w`, `pico2` (no radio), both profiles, warnings as errors |
-| On a strip | nothing — no strip was available when this was written |
-| Against Home Assistant | nothing — no instance was available |
+| On a Pico 2 W | everything except the strip — see below |
+| On a strip | nothing — no strip was available |
+| Against Home Assistant | nothing — no instance was available; the MQTT exchange was driven by hand instead |
 
-The components underneath it *are* validated on hardware: `wifi` and `mqtt` on
-a Pico 2 W, `ws2812`'s blocking path on an RP2040-Zero. What is unproven is
-this application on top of them, and in particular anything an eye has to
-judge — whether the fades look smooth, whether the dithering does what it is
-meant to at low brightness, whether the effects are pleasant. Record results
-here when a strip is to hand; see "What to check first" at the end.
+Validated on a Pico 2 W against `broker.hivemq.com`, 2026-09-03. Every part of
+this that does not need LEDs:
+
+* Boots, restores its stored settings across a reflash, associates, and
+  connects to the broker with no console involvement.
+* Publishes a 634-byte discovery document, its state, and `online` — all
+  retained, all received intact by an independent subscriber. That document is
+  past lwIP's 256-byte default output ring buffer, so it also exercises the
+  override in `components/wifi/include/lwipopts.h`.
+* Applies a full command from off-board — power, brightness, an RGB colour and
+  an effect in one message — and republishes a state whose `color_mode` and
+  colour attribute agree.
+* Applies a **partial** command (`{"brightness":60}`) without disturbing the
+  power, colour or effect. This is the behaviour a slider drag depends on.
+* Reports an effect name it does not have, and refuses a payload that is not a
+  command (`[1,2,3]`), rather than silently doing nothing.
+* Saves to flash ten seconds after the last change and not before, and comes
+  back with the same effect, brightness and colour after a reboot.
+* The last will works end to end: `online` → `offline` when the link dropped
+  → `online` on reconnect, which is what Home Assistant reads as availability.
+
+What is still unproven is everything an eye has to judge — whether the fades
+look smooth, whether the dithering does what it is meant to at low brightness,
+whether the effects are pleasant — and Home Assistant's own handling of the
+discovery document. Record those here when a strip is to hand; see "What to
+check first" at the end.
 
 ## Required hardware
 
@@ -175,6 +196,9 @@ a power cut: the broker publishes "offline" on the device's behalf.
 
 In this order, because each one rules out the causes of the next:
 
+The console and network half is already done (see Status); what remains needs
+the LEDs.
+
 1. `test` — the pattern appears, red at the near end. If the colours are
    swapped it is a clone with a different channel order, not a bug; if only
    the first few pixels are right, suspect the 3.3 V data line.
@@ -183,12 +207,11 @@ In this order, because each one rules out the causes of the next:
    backwards, and the low end still shows gradations rather than a staircase.
    That low end is what the dithering is for.
 4. Each effect in turn, at a middling brightness.
-5. `connect`, then watch for `[ha] announced as ...` and check the light
-   appears in Home Assistant.
+5. Check the light appears in Home Assistant and that its dropdown offers the
+   five effects. Everything up to the broker is already confirmed; what has
+   never been seen is Home Assistant's own reading of the discovery document.
 6. Drive it from Home Assistant: on/off, the brightness slider, a colour, the
    colour-temperature slider, each effect.
-7. Pull the power, restore it: the light comes back as it was, and Home
-   Assistant shows it available again.
 
 ## Where this came from
 
