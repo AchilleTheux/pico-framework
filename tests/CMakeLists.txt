@@ -142,6 +142,53 @@ target_include_directories(json_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/json/include"
 )
 
+# ---------------------------------------------------------------------------
+# Applications
+#
+# An application's logic is worth covering for the same reason a component's
+# is, and by the same rule: whatever calls no Pico SDK function belongs on the
+# host. home_led keeps its light model, its effects and its Home Assistant
+# schema in files that do exactly that, so they compile straight in here and
+# only main.c is left for hardware to judge.
+# ---------------------------------------------------------------------------
+
+host_test(home_led_light_test
+    SOURCES
+        tests/apps/home_led_light_test.c
+        apps/home_led/light.c
+        components/ws2812/ws2812_color.c
+)
+target_include_directories(home_led_light_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/apps/home_led"
+    "${PICO_FRAMEWORK_ROOT}/components/ws2812/include"
+)
+
+host_test(home_led_effects_test
+    SOURCES
+        tests/apps/home_led_effects_test.c
+        apps/home_led/effects.c
+        apps/home_led/light.c
+        components/ws2812/ws2812_color.c
+)
+target_include_directories(home_led_effects_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/apps/home_led"
+    "${PICO_FRAMEWORK_ROOT}/components/ws2812/include"
+)
+
+host_test(home_led_ha_test
+    SOURCES
+        tests/apps/home_led_ha_test.c
+        apps/home_led/ha.c
+        apps/home_led/light.c
+        components/json/json.c
+        components/ws2812/ws2812_color.c
+)
+target_include_directories(home_led_ha_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/apps/home_led"
+    "${PICO_FRAMEWORK_ROOT}/components/json/include"
+    "${PICO_FRAMEWORK_ROOT}/components/ws2812/include"
+)
+
 host_test(ring_buffer_test
     SOURCES
         tests/components/ring_buffer_test.c

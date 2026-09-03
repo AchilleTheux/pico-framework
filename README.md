@@ -46,7 +46,7 @@ Updating a board over a serial link, with no USB involved, is built from these:
 on one console. [`serial_update_test`](apps/tests/serial_update_test/) is the
 worked example.
 
-Pure logic is covered by 23 sanitizer-enabled host executables. Hardware-facing
+Pure logic is covered by 26 sanitizer-enabled host executables. Hardware-facing
 groups have manual applications under `apps/tests/`; a successful cross-build
 is recorded separately from a physical result. The RP2040-Zero has validated
 USB stdio and CLI, its onboard WS2812, bare-pin PIO UART loopback, persistent
@@ -74,6 +74,14 @@ controller, real I2C devices, and smart servos still await the hardware listed
 by their test applications. The serial firmware installer has
 completed an end-to-end stage, verify, in-place install, automatic reboot, and
 second transfer over a hardware UART on the RP2040-Zero.
+
+[`home_led`](apps/home_led/) is the first application here that is a product
+rather than a bench: a WS2812 strip published to Home Assistant over MQTT,
+built from six components at once. It also carries the framework's testing
+rule further than before — its light model, its effects and its Home Assistant
+schema call no SDK function, so all three compile into the host tests and only
+its `main.c` needs hardware to judge. That was worth doing: 73 of those tests
+exist because no strip was available to look at.
 
 The serial updater is implemented as an application service: it stages and
 verifies an image, then an opt-in RAM-resident routine installs it in place.
@@ -204,6 +212,7 @@ lib/pico-sdk/           Pico SDK, pinned submodule
 lib/can2040/            PIO CAN controller, pinned submodule
 components/             reusable libraries listed in the status table above
 apps/minimal/           the smallest complete application
+apps/home_led/          a WS2812 strip as a Home Assistant light
 apps/tests/             hardware benches, often exercising several components
 boards/                 custom Pico SDK board headers
 profiles/<app>/         initial-cache profiles per application
@@ -358,6 +367,9 @@ driven by actual project needs rather than another architecture phase:
   fix (tracked as [pico-sdk#3078](https://github.com/raspberrypi/pico-sdk/issues/3078)
   / [#3148](https://github.com/raspberrypi/pico-sdk/issues/3148));
 - add TCP/UDP, PWM, and persistent flash logging when an application needs them;
+- validate [`home_led`](apps/home_led/) on a strip and against a Home
+  Assistant instance; it is complete and host-tested, but nothing about how it
+  *looks* has been seen yet;
 - exercise the framework in a complete robot application rather than only the
   minimal image and component benches.
 
