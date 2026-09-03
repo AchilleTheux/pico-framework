@@ -129,6 +129,61 @@ TEST(a_brightness_change_arrives_gradually_and_completely)
     CHECK_EQ_INT(light_current_brightness(&light), 200);
 }
 
+TEST(turning_on_always_fades_from_black_to_the_requested_brightness)
+{
+    light_t light;
+
+    light_init(&light, 0);
+
+    /* Let a brightness request finish while off. This was the intermittent
+       case: the later ON used to find the ramp already at its target and
+       illuminate at full requested brightness immediately. */
+    light_set_brightness(&light, 200, 0);
+    settle(&light, WELL_PAST);
+    CHECK_EQ_INT(light_current_brightness(&light), 200);
+
+    light_set_power(&light, true, WELL_PAST);
+    CHECK(light_is_fading(&light));
+    CHECK_EQ_INT(light_current_brightness(&light), 0);
+
+    settle(&light, WELL_PAST + LIGHT_FADE_BRIGHTNESS_MS / 2u);
+    const uint8_t middle = light_current_brightness(&light);
+    CHECK(middle > 0);
+    CHECK(middle < 200);
+
+    settle(&light, WELL_PAST + LIGHT_FADE_BRIGHTNESS_MS);
+    CHECK_EQ_INT(light_current_brightness(&light), 200);
+    CHECK(!light_is_fading(&light));
+}
+
+TEST(a_stale_loop_timestamp_cannot_finish_a_new_ramp_immediately)
+{
+    light_t light;
+
+    light_init(&light, 0);
+    light_set_power(&light, true, 0);
+    settle(&light, WELL_PAST);
+
+    const uint8_t before = light_current_brightness(&light);
+
+    /* Reproduce the main-loop ordering that made the hardware failure rare:
+       the loop sampled 999 first, then an MQTT callback started this ramp at
+       1000, then light_tick() was called with the older sample. */
+    light_set_brightness(&light, 220, 1000);
+    light_tick(&light, 999);
+
+    CHECK(light_is_fading(&light));
+    CHECK_EQ_INT(light_current_brightness(&light), before);
+
+    light_tick(&light, 1000 + LIGHT_FADE_BRIGHTNESS_MS / 2u);
+    const uint8_t middle = light_current_brightness(&light);
+    CHECK(middle > before);
+    CHECK(middle < 220);
+
+    light_tick(&light, 1000 + LIGHT_FADE_BRIGHTNESS_MS);
+    CHECK_EQ_INT(light_current_brightness(&light), 220);
+}
+
 TEST(a_fade_never_goes_backwards_or_overshoots)
 {
     light_t light;
@@ -610,6 +665,8 @@ TEST_MAIN(
     RUN(setting_an_out_of_range_effect_leaves_the_current_one_running);
     RUN(a_fresh_light_starts_off_at_solid_3000k);
     RUN(a_brightness_change_arrives_gradually_and_completely);
+    RUN(turning_on_always_fades_from_black_to_the_requested_brightness);
+    RUN(a_stale_loop_timestamp_cannot_finish_a_new_ramp_immediately);
     RUN(a_fade_never_goes_backwards_or_overshoots);
     RUN(a_fade_eases_at_both_ends);
     RUN(a_fade_interrupted_part_way_continues_from_where_it_actually_is);

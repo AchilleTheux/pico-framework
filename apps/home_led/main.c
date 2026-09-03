@@ -82,10 +82,14 @@ int main(void)
     uint32_t last_frame_ms = started_ms;
 
     while (true) {
-        const uint32_t now_ms = app_now_ms();
-
         cli_poll(&app.cli);
         net_poll(&app);
+
+        /* Polling can invoke a command callback, and those callbacks take
+           their own current timestamp when they start a ramp. Sample after
+           them so light_tick() can never immediately receive a timestamp
+           older than the ramp it is advancing. */
+        const uint32_t now_ms = app_now_ms();
         light_tick(&app.light, now_ms);
 
         if (now_ms - last_frame_ms >= FRAME_INTERVAL_MS) {

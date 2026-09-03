@@ -82,7 +82,7 @@ rather than a bench: an LED strip published to Home Assistant over MQTT, built
 from six components at once. It also carries the framework's testing rule
 further than before — its light model, its effects and its Home Assistant
 schema call no SDK function, so all three compile into the host tests and only
-its `main.c` needs hardware to judge. 73 tests came out of that, written
+its `main.c` needs hardware to judge. 75 tests came out of that, written
 before any of it had been seen on a strip; when one was finally driven, the
 single thing that turned out to be wrong was a strip property no test could
 have known — its channel order.

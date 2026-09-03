@@ -15,7 +15,7 @@ built to do; what has actually been demonstrated is:
 
 | | |
 |---|---|
-| Host tests | 73, across the light model (25), the effects (20) and the Home Assistant schema (28), under ASan and UBSan |
+| Host tests | 75, across the light model (27), the effects (20) and the Home Assistant schema (28), under ASan and UBSan |
 | Cross-builds | `pico2_w`, `pico_w`, `pico2` (no radio), both profiles, warnings as errors |
 | On a Pico 2 W | everything except the strip — see below |
 | On a strip | the wire order and the primaries; the rest still unseen |
@@ -223,8 +223,10 @@ badly, in a way that is hard to attribute to anything.
 
 Brightness moves over three seconds and colour temperature over four, both
 eased with smoothstep rather than linearly, because a linear fade has a
-visible corner at each end. `light_tick()` advances them from the main loop
-and nothing blocks.
+visible corner at each end. Turning on always begins at black and uses the
+same brightness fade, even when the requested brightness was already reached
+while off; turning off remains immediate. `light_tick()` advances the ramps
+from the main loop and nothing blocks.
 
 The state published to Home Assistant is the value that was *asked for*, not
 the one the fade has reached. Reporting the ramp would make a slider crawl for

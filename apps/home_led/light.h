@@ -19,8 +19,9 @@
  * TRANSITIONS
  *
  * Brightness and colour temperature move gradually rather than jumping,
- * because a light that snaps between levels reads as a fault. Both are driven
- * by light_tick() from the main loop and neither blocks anything.
+ * because a light that snaps between levels reads as a fault. Switching on
+ * also fades brightness up from black; switching off is immediate. All ramps
+ * are driven by light_tick() from the main loop and none blocks anything.
  */
 
 #ifndef HOME_LED_LIGHT_H

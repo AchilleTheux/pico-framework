@@ -135,6 +135,16 @@ static void ramp_tick(light_ramp_t *ramp, uint32_t now_ms)
      */
     const uint32_t elapsed = now_ms - ramp->start_ms;
 
+    /* A caller can start a ramp from inside an I/O callback. If its outer
+       loop sampled time before dispatching that callback, the first tick may
+       be a few milliseconds older than start_ms. Unsigned subtraction makes
+       that look almost 2^32 milliseconds old, which would finish the ramp in
+       one step. Modular signed ordering distinguishes that small backwards
+       sample from a real tick across the uint32_t wrap. */
+    if ((int32_t)elapsed < 0) {
+        return;
+    }
+
     if (elapsed >= ramp->duration_ms) {
         ramp_set(ramp, ramp->to);
         return;
@@ -185,14 +195,19 @@ void light_set_power(light_t *light, bool on, uint32_t now_ms)
         return;
     }
 
-    /*
-     * Power is separate from the effect, so switching off and back on resumes
-     * whatever was running rather than resetting to solid. It takes effect at
-     * once: a controller that asked for off expects off, not a fade.
-     */
+    /* Power is separate from the effect, so switching off and back on resumes
+       whatever was running rather than resetting to solid. Off takes effect
+       at once; on always fades up from black. Without resetting the ramp here,
+       a brightness target reached while the light was off would appear
+       immediately and make otherwise identical ON commands behave
+       differently. */
     light->on = on;
+    if (on) {
+        ramp_set(&light->brightness_ramp, 0);
+        ramp_start(&light->brightness_ramp, light->brightness,
+                   LIGHT_FADE_BRIGHTNESS_MS, now_ms);
+    }
     changed(light);
-    (void)now_ms;
 }
 
 void light_set_brightness(light_t *light, uint8_t brightness, uint32_t now_ms)

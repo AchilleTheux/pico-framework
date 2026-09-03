@@ -111,6 +111,7 @@ TEST(switching_back_on_resumes_the_effect)
     CHECK_EQ_INT((int)lit_count(&canvas), 0);
 
     light_set_power(&light, true, 0);
+    light_tick(&light, LIGHT_FADE_BRIGHTNESS_MS);
     effects_render(&effects, &light, canvas.pixels, STRIP, 16);
 
     CHECK_EQ_INT(canvas.pixels[0].g, 200);
