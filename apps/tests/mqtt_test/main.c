@@ -17,6 +17,7 @@
 #include "cli.h"
 #include "cli_builtins.h"
 #include "cli_stream.h"
+#include "json.h"
 #include "mqtt.h"
 #include "persistent_config.h"
 #include "wifi.h"
@@ -91,6 +92,70 @@ static void on_message(void *arg, const char *topic, const uint8_t *payload, siz
     cli_write_prompt(c);
 }
 
+/*
+ * Standing subscriptions.
+ *
+ * lwIP connects with the clean-session flag set, so the broker forgets this
+ * client's subscriptions every time the session drops. `sub` therefore
+ * records the topic here as well as sending it, and on_connect replays the
+ * list -- which is the pattern every real application needs and the reason
+ * mqtt_config_t has an on_connect at all.
+ */
+#define MAX_SUBSCRIPTIONS 4u
+
+static struct {
+    char topic[MQTT_TOPIC_MAX_LENGTH + 1];
+    uint8_t qos;
+    bool used;
+} subscriptions[MAX_SUBSCRIPTIONS];
+
+static void remember_subscription(const char *topic, uint8_t qos)
+{
+    for (size_t i = 0; i < MAX_SUBSCRIPTIONS; i++) {
+        if (subscriptions[i].used && strcmp(subscriptions[i].topic, topic) == 0) {
+            subscriptions[i].qos = qos;
+            return;
+        }
+    }
+    for (size_t i = 0; i < MAX_SUBSCRIPTIONS; i++) {
+        if (!subscriptions[i].used) {
+            snprintf(subscriptions[i].topic, sizeof(subscriptions[i].topic), "%s", topic);
+            subscriptions[i].qos = qos;
+            subscriptions[i].used = true;
+            return;
+        }
+    }
+}
+
+static void forget_subscription(const char *topic)
+{
+    for (size_t i = 0; i < MAX_SUBSCRIPTIONS; i++) {
+        if (subscriptions[i].used && strcmp(subscriptions[i].topic, topic) == 0) {
+            subscriptions[i].used = false;
+        }
+    }
+}
+
+/* Runs on every accepted session, first connect and reconnects alike. */
+static void on_connect(void *arg)
+{
+    cli_t *c = (cli_t *)arg;
+
+    cli_printf(c, "\r\n[mqtt] connected, session %lu\r\n",
+               (unsigned long)mqtt_sessions(&mqtt));
+
+    for (size_t i = 0; i < MAX_SUBSCRIPTIONS; i++) {
+        if (!subscriptions[i].used) {
+            continue;
+        }
+        const mqtt_result_t result =
+            mqtt_subscribe_topic(&mqtt, subscriptions[i].topic, subscriptions[i].qos);
+        cli_printf(c, "[mqtt] resubscribe %s qos %u: %s\r\n", subscriptions[i].topic,
+                   (unsigned)subscriptions[i].qos, mqtt_result_name(result));
+    }
+    cli_write_prompt(c);
+}
+
 static mqtt_config_t current_mqtt_config(void)
 {
     return (mqtt_config_t){
@@ -102,6 +167,8 @@ static mqtt_config_t current_mqtt_config(void)
         .keep_alive_s = MQTT_DEFAULT_KEEP_ALIVE_S,
         .on_message = on_message,
         .on_message_arg = &cli,
+        .on_connect = on_connect,
+        .on_connect_arg = &cli,
         .retry = {
             .first_delay_ms = 1000,
             .max_delay_ms = 15000,
@@ -343,6 +410,13 @@ static int cmd_mqttstatus(cli_t *c, void *user_data)
         cli_printf(c, "attempts     %lu\r\n", (unsigned long)mqtt_attempts(&mqtt));
     }
     cli_printf(c, "dropped      %lu\r\n", (unsigned long)mqtt_messages_dropped(&mqtt));
+    cli_printf(c, "sessions     %lu\r\n", (unsigned long)mqtt_sessions(&mqtt));
+    for (size_t i = 0; i < MAX_SUBSCRIPTIONS; i++) {
+        if (subscriptions[i].used) {
+            cli_printf(c, "standing sub %s qos %u\r\n", subscriptions[i].topic,
+                       (unsigned)subscriptions[i].qos);
+        }
+    }
     return CLI_OK;
 }
 
@@ -358,6 +432,10 @@ static int cmd_sub(cli_t *c, void *user_data)
     cli_next_u32(c, &qos); /* defaults to 0 when absent or malformed */
 
     const mqtt_result_t result = mqtt_subscribe_topic(&mqtt, topic, (uint8_t)qos);
+    if (result == MQTT_OK) {
+        /* Kept so on_connect can restore it after a reconnect. */
+        remember_subscription(topic, (uint8_t)qos);
+    }
     cli_printf(c, "%s\r\n", mqtt_result_name(result));
     return (result == MQTT_OK) ? CLI_OK : CLI_ERR_FAILED;
 }
@@ -371,6 +449,7 @@ static int cmd_unsub(cli_t *c, void *user_data)
         return CLI_ERR_ARG;
     }
     const mqtt_result_t result = mqtt_unsubscribe_topic(&mqtt, topic);
+    forget_subscription(topic);
     cli_printf(c, "%s\r\n", mqtt_result_name(result));
     return (result == MQTT_OK) ? CLI_OK : CLI_ERR_FAILED;
 }
@@ -388,6 +467,112 @@ static int cmd_pub(cli_t *c, void *user_data)
         mqtt_publish_message(&mqtt, topic, message, (uint16_t)strlen(message), 0, false);
     cli_printf(c, "%s\r\n", mqtt_result_name(result));
     return (result == MQTT_OK) ? CLI_OK : CLI_ERR_FAILED;
+}
+
+/*
+ * Publish a Home Assistant-sized discovery document, built with the json
+ * component.
+ *
+ * Two things are under test here that a short `pub` cannot reach. The first
+ * is the json writer against a real broker rather than a host buffer. The
+ * second is the payload size: this document runs well past lwIP's default
+ * 256-byte MQTT_OUTPUT_RINGBUF_SIZE, and a publish larger than that ring
+ * buffer is not split or queued -- it fails with ERR_MEM and arrives here as
+ * MQTT_ERR_FAILED, with nothing on the wire to explain it. The override in
+ * components/wifi/include/lwipopts.h is what makes this succeed, so a
+ * regression there shows up as this command failing and nothing else.
+ */
+static int cmd_discovery(cli_t *c, void *user_data)
+{
+    (void)user_data;
+
+    const char *topic = cli_next_token(c);
+    if (topic == NULL) {
+        cli_write(c, "usage: discovery <topic>\r\n");
+        return CLI_ERR_ARG;
+    }
+
+    static const char *const effects[] = {
+        "Solid", "Rainbow", "Twinkle", "Wipe", "Breathing"
+    };
+    static char payload[1024];
+    json_writer_t writer;
+
+    json_writer_init(&writer, payload, sizeof(payload));
+    json_writer_object_open(&writer, NULL);
+    json_writer_string(&writer, "name", "Pico LED");
+    json_writer_string(&writer, "uniq_id", client_id);
+    json_writer_string(&writer, "schema", "json");
+    json_writer_string(&writer, "cmd_t", "pico-framework/light/set");
+    json_writer_string(&writer, "stat_t", "pico-framework/light/state");
+    json_writer_string(&writer, "avty_t", "pico-framework/light/status");
+    json_writer_bool(&writer, "brightness", true);
+    json_writer_array_open(&writer, "supported_color_modes");
+    json_writer_string(&writer, NULL, "rgb");
+    json_writer_string(&writer, NULL, "color_temp");
+    json_writer_array_close(&writer);
+    json_writer_int(&writer, "min_mireds", 153);
+    json_writer_int(&writer, "max_mireds", 500);
+    json_writer_bool(&writer, "effect", true);
+    json_writer_array_open(&writer, "effect_list");
+    for (size_t i = 0; i < sizeof(effects) / sizeof(effects[0]); i++) {
+        json_writer_string(&writer, NULL, effects[i]);
+    }
+    json_writer_array_close(&writer);
+    json_writer_int(&writer, "qos", 1);
+    json_writer_object_open(&writer, "device");
+    json_writer_array_open(&writer, "identifiers");
+    json_writer_string(&writer, NULL, client_id);
+    json_writer_array_close(&writer);
+    json_writer_string(&writer, "name", "Pico Controller");
+    json_writer_string(&writer, "manufacturer", "Raspberry Pi");
+    json_writer_string(&writer, "model", "Pico 2 W");
+    json_writer_object_close(&writer);
+    json_writer_object_close(&writer);
+
+    if (!json_writer_finish(&writer)) {
+        cli_write(c, "the document did not fit\r\n");
+        return CLI_ERR_FAILED;
+    }
+
+    const size_t length = json_writer_length(&writer);
+    cli_printf(c, "%u bytes\r\n", (unsigned)length);
+
+    const mqtt_result_t result =
+        mqtt_publish_message(&mqtt, topic, payload, (uint16_t)length, 1, true);
+    cli_printf(c, "%s\r\n", mqtt_result_name(result));
+    return (result == MQTT_OK) ? CLI_OK : CLI_ERR_FAILED;
+}
+
+/*
+ * Force a reconnect from the console.
+ *
+ * The point of the bench is to see on_connect fire a second time and the
+ * standing subscriptions come back, and waiting for a real outage to arrange
+ * itself is a poor way to test that. This closes the session and immediately
+ * reopens it, which is what the broker sees when the link drops.
+ */
+static int cmd_drop(cli_t *c, void *user_data)
+{
+    (void)user_data;
+    if (!mqtt_is_connected(&mqtt)) {
+        cli_write(c, "not connected\r\n");
+        return CLI_ERR_STATE;
+    }
+
+    const uint32_t before = mqtt_sessions(&mqtt);
+    mqtt_close(&mqtt);
+
+    const mqtt_config_t config = current_mqtt_config();
+    const mqtt_result_t result = mqtt_connect(&mqtt, &config);
+    if (result != MQTT_OK) {
+        cli_printf(c, "error: %s\r\n", mqtt_result_name(result));
+        return CLI_ERR_FAILED;
+    }
+    mqtt_auto_connect = true;
+    cli_printf(c, "dropped after session %lu; watch for the next one\r\n",
+               (unsigned long)before);
+    return CLI_OK;
 }
 
 static const cli_command_t own_commands[] = {
@@ -411,6 +596,8 @@ static const cli_command_t own_commands[] = {
     { "sub",             "sub <topic> [qos] - subscribe",          cmd_sub,             NULL },
     { "unsub",           "unsub <topic> - unsubscribe",            cmd_unsub,           NULL },
     { "pub",             "pub <topic> <message> - publish, qos 0", cmd_pub,             NULL },
+    { "drop",            "close and reopen the session",           cmd_drop,            NULL },
+    { "discovery",       "discovery <topic> - publish a large JSON document", cmd_discovery, NULL },
 };
 
 int main(void)

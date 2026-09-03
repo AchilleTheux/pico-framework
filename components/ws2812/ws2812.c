@@ -133,6 +133,7 @@ ws2812_result_t ws2812_init(ws2812_strip_t *strip, const ws2812_config_t *config
         .length      = config->length,
         .is_rgbw     = config->is_rgbw,
         .brightness  = 255,
+        .gamma_table = NULL,
         .wire_buffer = config->wire_buffer,
         .dma_channel = dma_channel,
         .initialised = true,
@@ -214,6 +215,14 @@ uint8_t ws2812_get_brightness(const ws2812_strip_t *strip)
     return (strip != NULL && strip->initialised) ? strip->brightness : 0;
 }
 
+void ws2812_set_gamma(ws2812_strip_t *strip, const uint8_t *table)
+{
+    if (strip == NULL || !strip->initialised) {
+        return;
+    }
+    strip->gamma_table = table;
+}
+
 /* The sticky flag the state machine raises when it stalls on an empty FIFO,
    which is how "everything has been clocked out" is detected. */
 static uint32_t stall_mask(const ws2812_strip_t *strip)
@@ -221,14 +230,38 @@ static uint32_t stall_mask(const ws2812_strip_t *strip)
     return 1u << (PIO_FDEBUG_TXSTALL_LSB + strip->sm);
 }
 
-/* Convert the pixel buffer into wire words, applying brightness on the way. */
+/*
+ * One pixel, from what the application wrote to what the state machine wants.
+ *
+ * Brightness first, then gamma: gamma says what value produces a given
+ * apparent brightness, so it has to be the last thing that touches the
+ * number. Both paths below go through here so that ordering cannot end up
+ * different in one of them.
+ */
+static uint32_t encode_pixel(const ws2812_strip_t *strip, uint16_t index)
+{
+    ws2812_color_t color = strip->pixels[index];
+
+    if (strip->brightness != 255) {
+        color = ws2812_color_scale(color, strip->brightness);
+    }
+    if (strip->gamma_table != NULL) {
+        color = (ws2812_color_t){
+            .r = strip->gamma_table[color.r],
+            .g = strip->gamma_table[color.g],
+            .b = strip->gamma_table[color.b],
+            .w = strip->gamma_table[color.w],
+        };
+    }
+
+    return ws2812_color_to_wire(color, strip->is_rgbw);
+}
+
+/* Convert the pixel buffer into wire words for the DMA transfer. */
 static void fill_wire_buffer(ws2812_strip_t *strip)
 {
     for (uint16_t i = 0; i < strip->length; i++) {
-        const ws2812_color_t color = strip->brightness == 255
-            ? strip->pixels[i]
-            : ws2812_color_scale(strip->pixels[i], strip->brightness);
-        strip->wire_buffer[i] = ws2812_color_to_wire(color, strip->is_rgbw);
+        strip->wire_buffer[i] = encode_pixel(strip, i);
     }
 }
 
@@ -321,10 +354,7 @@ void ws2812_show(ws2812_strip_t *strip)
     /* No wire buffer: push straight into the FIFO, which needs no extra memory
        and is all a caller that never animates requires. */
     for (uint16_t i = 0; i < strip->length; i++) {
-        const ws2812_color_t color = strip->brightness == 255
-            ? strip->pixels[i]
-            : ws2812_color_scale(strip->pixels[i], strip->brightness);
-        pio_sm_put_blocking(strip->pio, strip->sm, ws2812_color_to_wire(color, strip->is_rgbw));
+        pio_sm_put_blocking(strip->pio, strip->sm, encode_pixel(strip, i));
     }
 
     /*

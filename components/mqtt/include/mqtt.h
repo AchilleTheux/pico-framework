@@ -105,6 +105,25 @@ typedef enum {
 typedef void (*mqtt_message_cb_t)(void *arg, const char *topic,
                                   const uint8_t *payload, size_t length);
 
+/*
+ * Called once each time a broker session is accepted -- the first connection
+ * and every reconnection after it.
+ *
+ * This is where subscriptions go, and it is not optional bookkeeping.
+ * lwIP always connects with the clean-session flag set, so the broker
+ * discards this client's subscriptions the moment the session drops: after a
+ * reconnect the topics are gone and messages simply stop arriving, with
+ * mqtt_is_connected() reporting true throughout. Anything else a device must
+ * re-announce on reconnect -- a retained discovery document, an availability
+ * message -- belongs here for the same reason.
+ *
+ * Runs from lwIP's connection callback, so it is subject to the same rules as
+ * on_message: do the small thing (subscribe, publish) and leave the long one
+ * to the main loop. mqtt_subscribe_topic() and mqtt_publish_message() are both
+ * safe to call from inside it -- the session is up by the time it runs.
+ */
+typedef void (*mqtt_connect_cb_t)(void *arg);
+
 typedef struct {
     /*
      * Borrowed, not copied, so all of these must outlive the connection --
@@ -131,6 +150,12 @@ typedef struct {
     mqtt_message_cb_t on_message;
     void *on_message_arg;
 
+    /* Optional, but a client that subscribes to anything wants it: see
+       mqtt_connect_cb_t. NULL suits a publish-only client with nothing to
+       re-establish. */
+    mqtt_connect_cb_t on_connect;
+    void *on_connect_arg;
+
     wifi_retry_config_t retry;
 } mqtt_config_t;
 
@@ -156,6 +181,7 @@ typedef struct {
     size_t message_length;
     bool message_overflowed;
     uint32_t messages_dropped;
+    uint32_t sessions;
 
     bool initialised;
 } mqtt_t;
@@ -219,6 +245,16 @@ static inline mqtt_state_t mqtt_state(const mqtt_t *mqtt)
 static inline bool mqtt_is_connected(const mqtt_t *mqtt)
 {
     return mqtt->state == MQTT_STATE_CONNECTED;
+}
+
+/*
+ * How many sessions this instance has had accepted since mqtt_init(). One
+ * after the first connect; each reconnect adds another. A caller that wants
+ * to notice a session change without a callback can watch this.
+ */
+static inline uint32_t mqtt_sessions(const mqtt_t *mqtt)
+{
+    return mqtt->sessions;
 }
 
 /* How many attempts the current outage has taken. Zero when connected. */

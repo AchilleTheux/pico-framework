@@ -133,6 +133,15 @@ target_include_directories(crc_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/crc/include"
 )
 
+host_test(json_test
+    SOURCES
+        tests/components/json_test.c
+        components/json/json.c
+)
+target_include_directories(json_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/json/include"
+)
+
 host_test(ring_buffer_test
     SOURCES
         tests/components/ring_buffer_test.c

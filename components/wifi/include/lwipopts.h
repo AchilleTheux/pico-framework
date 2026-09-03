@@ -111,4 +111,36 @@
  */
 #define MEMP_NUM_SYS_TIMEOUT 7
 
+/*
+ * The mqtt component's outgoing buffer, again in this file because it depends
+ * on wifi for the stack and so reuses this configuration.
+ *
+ * lwIP defaults this to 256 bytes (lwip/apps/mqtt_opts.h). A publish larger
+ * than what the ring buffer can hold is not split or queued -- mqtt_publish()
+ * returns ERR_MEM and the message is simply never sent, which reaches a caller
+ * here as MQTT_ERR_FAILED with nothing on the wire to explain it.
+ *
+ * 256 bytes is under what a real payload needs. A Home Assistant MQTT
+ * discovery document -- the retained JSON a device publishes to announce
+ * itself, with its topics, capabilities and effect list -- runs to several
+ * hundred bytes for a single light: the one apps/tests/mqtt_test builds
+ * measures 464, and a device with longer topics or more effects goes past
+ * that. 1 KiB covers it with room for the fixed header and leaves a second
+ * publish in flight behind it.
+ *
+ * Costs 768 bytes of RAM over the default, allocated once per lwIP MQTT
+ * client rather than per message.
+ */
+#define MQTT_OUTPUT_RINGBUF_SIZE 1024
+
+/*
+ * Not overridden, but worth knowing about while you are here: lwIP sizes the
+ * outgoing *variable header* separately, at MQTT_VAR_HEADER_BUFFER_LEN (128).
+ * That one holds the CONNECT variable header -- client id, will topic, will
+ * message, username and password, each length-prefixed -- not the payload.
+ * A client id plus a will on a topic like "homeassistant/light/<id>/status"
+ * lands around 80 bytes, so it fits, but not by a wide margin: raise this too
+ * if a connection is refused with long credentials or a long will topic.
+ */
+
 #endif /* PICO_FRAMEWORK_LWIPOPTS_H */

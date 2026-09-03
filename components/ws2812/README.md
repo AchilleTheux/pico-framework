@@ -118,13 +118,67 @@ expressed, and `tests/components/ws2812_color_test.c` pins it down. If a strip
 shows red where green was asked for, it is a clone with a different channel
 order, not a bug in the encoding.
 
+## Making it look right: gamma, dithering, and hue
+
+Three things in `ws2812_color.h` exist because a strip driven with plain
+linear values does not look the way the numbers say it should.
+
+**Gamma.** A WS2812 emits in proportion to the value it is sent; the eye does
+not see in proportion to emitted light. Uncorrected, a linear fade spends most
+of its travel already looking bright, and the bottom of a dimming curve
+collapses into a few indistinguishable steps. `ws2812_gamma_table` is a
+compile-time gamma-2.2 table — 256 bytes of flash, no RAM, no floating point.
+
+Hand it to the driver rather than applying it yourself:
+
+```c
+ws2812_set_gamma(&strip, ws2812_gamma_table);
+```
+
+**Order matters, and it is the reason that is a driver call.** Gamma says what
+value produces a given apparent brightness, so scaling a corrected value undoes
+the correction. An application that gamma-corrects its own pixel buffer and
+then calls `ws2812_set_brightness()` gets neither: it gets a curve applied to a
+curve. `ws2812_set_gamma()` puts the table at the end of the pipeline, after
+brightness, where the value is about to go out on the wire. Both the DMA and
+the FIFO path go through one encode function so the two cannot end up
+disagreeing about it.
+
+**Dithering.** Scaling to a low brightness quantises hard: at brightness 8
+every input from 0 to 31 lands on the same output, so a gradient becomes a
+staircase. `ws2812_dither_bias()` gives a 2x2 Bayer threshold over the pixel's
+position, complemented on alternate frames, and
+`ws2812_color_scale_dither()` applies it — recovering roughly two extra bits of
+depth that the eye integrates back together.
+
+```c
+for (uint16_t i = 0; i < ws2812_length(&strip); i++) {
+    const uint8_t bias = ws2812_dither_bias(i, 0, frame);
+    ws2812_set_pixel(&strip, i, ws2812_color_scale_dither(colour, brightness, bias));
+}
+frame++;
+```
+
+The complement on odd frames is the part worth getting right. Permuting *which*
+pixel gets which threshold — indexing the Bayer matrix with `index ^ 3`, which
+is the form this is usually written in — leaves the set of thresholds in the
+frame unchanged, so the grain moves around instead of cancelling. Complementing
+the value makes the two frames average to the middle of the range exactly, and
+`dither_averages_back_to_the_undithered_scale` in the host tests is what holds
+that.
+
+**Hue.** `ws2812_color_from_hsv()` has 256 hue steps, which is coarse once a
+gradient is spread along a long strip. `ws2812_color_from_hue16()` walks six
+256-wide segments instead — `WS2812_HUE16_RANGE` is 1536 — and wraps on its
+own, so an accumulator can just keep running.
+
 ## Layout
 
 | File | Role |
 |------|------|
 | `ws2812.pio` | the bit-banging program, unmodified from pico-examples (BSD-3-Clause) |
 | `ws2812.c` | state machine setup and transmission — all the Pico SDK calls |
-| `ws2812_color.c` / `include/ws2812_color.h` | pure integer colour logic, no SDK dependency |
+| `ws2812_color.c` / `include/ws2812_color.h` | pure integer colour logic — scaling, lerp, HSV, gamma, dithering — no SDK dependency |
 | `include/ws2812.h` | the hardware-facing API |
 
 The split is what makes the colour logic host-testable (DESIGN_DOC.md section
@@ -143,10 +197,15 @@ The split is what makes the colour logic host-testable (DESIGN_DOC.md section
 
 ## Testing
 
-* Host: `make test` covers the colour and wire-encoding logic.
+* Host: `make test` covers the colour and wire-encoding logic, including the
+  gamma table's shape and endpoints, hue-wheel continuity across every segment
+  boundary and the wrap, and that dithering averages back to the undithered
+  scale rather than shifting the colour.
 * Hardware: `make APP=tests/ws2812_test flash` — see that test's README.
 
 The blocking PIO path and RGB colour order were visually confirmed on the
 Waveshare RP2040-Zero's onboard GPIO16 pixel on 2026-08-31. External strips,
 RGBW pixels, long-strip signal integrity, and the DMA path remain unverified on
-hardware.
+hardware. Gamma and dithering are verified on the host only: whether a fade
+*looks* smooth is not something a test can settle, and it wants a real strip
+and an eye.

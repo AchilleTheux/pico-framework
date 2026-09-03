@@ -12,7 +12,7 @@ of reusable components. See [DESIGN_DOC.md](DESIGN_DOC.md) for the full design.
 All 15 initial implementation priorities in DESIGN_DOC.md section 24 are
 complete: the repository and build model, reusable components, host and target
 tests, real application profiles, WiFi support, and the extension guide. The
-framework now has 21 registered components; their individual READMEs distinguish
+framework now has 22 registered components; their individual READMEs distinguish
 host coverage, build coverage, and physical hardware validation.
 
 | Component | What it provides |
@@ -34,6 +34,7 @@ host coverage, build coverage, and physical hardware validation.
 | [`logging`](components/logging/) | levelled logging, compile-time filtered, several sinks |
 | [`wifi`](components/wifi/) | CYW43 station-mode connection management, with reconnect |
 | [`mqtt`](components/mqtt/) | poll-driven broker session on top of that link |
+| [`json`](components/json/) | reading and writing small JSON documents, no allocation |
 | [`bluetooth`](components/bluetooth/) | a serial console over Classic Bluetooth SPP |
 | [`can_frame`](components/can_frame/) | CAN frame, filter, and queue types, shared by both controllers |
 | [`can`](components/can/) | CAN 2.0B over one PIO block with can2040 |
@@ -45,7 +46,7 @@ Updating a board over a serial link, with no USB involved, is built from these:
 on one console. [`serial_update_test`](apps/tests/serial_update_test/) is the
 worked example.
 
-Pure logic is covered by 22 sanitizer-enabled host executables. Hardware-facing
+Pure logic is covered by 23 sanitizer-enabled host executables. Hardware-facing
 groups have manual applications under `apps/tests/`; a successful cross-build
 is recorded separately from a physical result. The RP2040-Zero has validated
 USB stdio and CLI, its onboard WS2812, bare-pin PIO UART loopback, persistent
@@ -65,8 +66,12 @@ subscribing, a message published from off-board arriving at the callback, and
 unsubscribing. That last step is what caught a bug no local test could have
 shown — inbound publishes discarded silently by lwIP, with every status the
 board reported looking correct; see [`mqtt`'s README](components/mqtt/README.md).
-CAN on either controller, real I2C devices, and smart servos still await the
-hardware listed by their test applications. The serial firmware installer has
+A second run on that board, against `broker.hivemq.com`, covers `mqtt`'s
+`on_connect` and a 464-byte publish built with `json` — past lwIP's 256-byte
+default output ring buffer, received intact by an independent subscriber, and
+re-subscribed automatically after a forced session drop. CAN on either
+controller, real I2C devices, and smart servos still await the hardware listed
+by their test applications. The serial firmware installer has
 completed an end-to-end stage, verify, in-place install, automatic reboot, and
 second transfer over a hardware UART on the RP2040-Zero.
 
@@ -317,8 +322,9 @@ verified with:
 |---------------------|--------------------------------------|
 | Pico SDK            | `2.3.0` (submodule, detached tag)     |
 | can2040             | `2988d4f` (submodule)                 |
-| CMake               | 4.4.2 (minimum required: 3.13)        |
-| `arm-none-eabi-gcc` | 16.2.0                                |
+| CMake               | 4.3.0 (minimum required: 3.13)        |
+| `arm-none-eabi-gcc` | 15.2.0                                |
+| host `cc`           | 16.2.1 (host tests only)              |
 | Ninja               | used when present; Make otherwise     |
 | picotool            | 2.3.0 (for `make flash`)              |
 | Python 3            | 3.14 (required by the SDK build)      |

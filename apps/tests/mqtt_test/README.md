@@ -57,6 +57,8 @@ mqtt> mqttstatus               mqtt state, broker, attempts, dropped
 mqtt> sub <topic> [qos]        subscribe
 mqtt> unsub <topic>            unsubscribe
 mqtt> pub <topic> <message>    publish, qos 0
+mqtt> drop                     close and reopen the session
+mqtt> discovery <topic>        publish a large JSON document, qos 1, retained
 ```
 
 Both the WiFi link and the MQTT session announce their state changes as they
@@ -82,6 +84,53 @@ included, so subscribing and publishing to the same topic is a complete
 loopback test needing nothing else. `unsub` should then stop delivery to that
 topic.
 
+### Subscriptions after a reconnect
+
+lwIP always connects with the clean-session flag set, so the broker forgets
+this client's subscriptions the instant the session drops. Nothing reports
+that: `mqttstatus` still says `connected` and messages simply stop arriving.
+`drop` closes and reopens the session on demand so that failure can be
+provoked rather than waited for.
+
+```text
+mqtt> sub pico-framework/test 1
+ok
+mqtt> drop
+dropped after session 2; watch for the next one
+
+[mqtt] connected, session 3
+[mqtt] resubscribe pico-framework/test qos 1: ok
+```
+
+The re-subscription is not the component's doing -- it is this application
+replaying its own list from `on_connect`, which is the pattern every real
+client needs. `mqttstatus` lists the standing subscriptions it will replay.
+A publish to that topic from somewhere else afterwards must arrive; if it does
+not, the replay is broken.
+
+### A publish larger than lwIP's output buffer
+
+`discovery` builds a Home Assistant-shaped announcement with the
+[`json`](../../../components/json/) component and publishes it retained at
+QoS 1. It is a few hundred bytes, which matters: lwIP defaults
+`MQTT_OUTPUT_RINGBUF_SIZE` to 256, and a publish larger than that ring buffer
+is not split or queued -- it fails with `ERR_MEM`, which arrives as
+`MQTT_ERR_FAILED` with nothing on the wire to explain it.
+`components/wifi/include/lwipopts.h` raises it for this reason, so a
+regression there shows up here and nowhere else.
+
+```text
+mqtt> discovery pico-framework/test/config
+464 bytes
+ok
+```
+
+The board's own subscription to that topic will count the message in
+`dropped` rather than printing it -- `MQTT_MAX_MESSAGE_LENGTH` is 256, and the
+component refuses to hand a caller a truncated payload. That is the expected
+result, and it doubles as proof the document really did exceed 256 bytes.
+To see the payload itself, watch the topic from a subscriber elsewhere.
+
 ## Expected result
 
 | Step | Expect |
@@ -93,6 +142,9 @@ topic.
 | `unsub`, then `pub` the same topic again | nothing prints |
 | `mqttstatus` | `dropped` stays 0 for ordinary short messages |
 | power cycle with settings saved | both reconnect with no console involved |
+| `drop` while connected | `connected, session N+1`, then a `resubscribe` line per standing subscription |
+| `discovery <topic>` while connected | a byte count over 256, then `ok` |
+| `sub` that topic first, then `discovery` | `dropped` increments by one; the payload does not print |
 
 ## Interpreting failures
 
@@ -105,8 +157,18 @@ topic.
 | connects, but a published message never comes back | subscribed to a different topic than published, or `unsub` was called since |
 | nothing ever happens, no state changes at all | `wifi_poll()` or `mqtt_poll()` is not being called every loop iteration |
 | `*** PANIC ***` mentioning `MEMP_SYS_TIMEOUT` | see the mqtt component's README -- fixed by an `lwipopts.h` change, should not reproduce on a build after 2026-09-03 |
+| `discovery` reports `failed` while `mqttstatus` says connected | `MQTT_OUTPUT_RINGBUF_SIZE` is back at lwIP's 256-byte default -- check `components/wifi/include/lwipopts.h` |
+| after `drop`, no `resubscribe` lines | `on_connect` is not wired into `mqtt_config_t` |
+| after `drop`, `resubscribe` prints but messages still do not arrive | the broker refused the subscription; check the QoS it returned |
 
 ## Status
+
+Validated on a Pico 2 W against `broker.hivemq.com`, 2026-09-03: `on_connect`
+firing on the first accepted session, `discovery` publishing 464 bytes and an
+independent subscriber receiving all 464 intact, the board's own subscription
+counting that same message in `dropped` instead of truncating it, and `drop`
+producing a fresh session whose automatic re-subscription then carried a
+message published from off-board through to `on_message`.
 
 Validated on a Pico 2 W against `test.mosquitto.org`, 2026-09-03: connect from
 a cold boot and from stored settings after reflash, publish reaching the

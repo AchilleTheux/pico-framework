@@ -80,6 +80,86 @@ ws2812_color_t ws2812_color_lerp(ws2812_color_t from, ws2812_color_t to, uint8_t
  */
 ws2812_color_t ws2812_color_from_hsv(uint8_t h, uint8_t s, uint8_t v);
 
+/*
+ * A hue-only wheel at six times the resolution of ws2812_color_from_hsv().
+ *
+ * 256 hue steps is coarse for a gradient spread along a long strip: a 300-LED
+ * rainbow at one hue step per LED runs through the whole wheel more than
+ * once, and at a fraction of a step per LED the banding is visible. This
+ * walks six 256-wide segments instead -- red, yellow, green, cyan, blue,
+ * magenta and back -- so a strip of any practical length gets a smooth ramp.
+ *
+ * `hue` wraps at WS2812_HUE16_RANGE, so a caller can let an accumulator run
+ * and never has to take a modulus of its own. Saturation and value are always
+ * full; scale the result with ws2812_color_scale() for anything dimmer.
+ */
+#define WS2812_HUE16_RANGE 1536u
+
+ws2812_color_t ws2812_color_from_hue16(uint16_t hue);
+
+/* ---------------------------------------------------------------------------
+ * Gamma
+ * -------------------------------------------------------------------------*/
+
+/*
+ * Perceptual correction, gamma 2.2.
+ *
+ * A WS2812 emits in proportion to the value it is sent, and the eye does not
+ * see in proportion to emitted light: half the value is nowhere near half as
+ * bright to look at. Uncorrected, a linear fade spends most of its travel
+ * looking already-bright, and the bottom of a dimming curve collapses into a
+ * few indistinguishable steps.
+ *
+ * The table is a compile-time constant rather than something built at startup
+ * with powf(): it costs 256 bytes of flash, no RAM, and no floating point on
+ * a part that has none in hardware.
+ *
+ * ORDER MATTERS. Gamma belongs at the very end, after brightness scaling --
+ * correcting first and then scaling re-linearises what you just corrected.
+ * ws2812_set_gamma() applies it in the right place for you; reach for these
+ * two directly only when authoring pixels the driver will not be scaling.
+ */
+uint8_t ws2812_gamma8(uint8_t value);
+
+/* Per-channel ws2812_gamma8(), white included. */
+ws2812_color_t ws2812_color_gamma(ws2812_color_t c);
+
+/* The table itself, for handing to ws2812_set_gamma(). */
+extern const uint8_t ws2812_gamma_table[256];
+
+/* ---------------------------------------------------------------------------
+ * Dithering
+ * -------------------------------------------------------------------------*/
+
+/*
+ * Ordered dithering, for the bottom of the brightness range.
+ *
+ * Scaling to a low brightness quantises hard: at brightness 8 every input
+ * from 0 to 31 lands on the same output, so a gradient becomes a staircase
+ * and a slow fade becomes visible steps. Varying the rounding threshold per
+ * pixel and per frame trades that for a fine grain the eye integrates away,
+ * recovering roughly two extra bits of depth without touching the wire format.
+ *
+ * ws2812_dither_bias() is a 2x2 Bayer matrix over the pixel's position,
+ * inverted on alternate frames so the pattern does not sit still and read as
+ * texture. Pass `y` as the strip index when several strips are driven
+ * together, or 0 for one strip.
+ */
+#define WS2812_DITHER_LEVELS 4u
+
+uint8_t ws2812_dither_bias(uint16_t x, uint16_t y, uint32_t frame);
+
+/*
+ * ws2812_color_scale() with the rounding threshold displaced by `bias`
+ * (0..WS2812_DITHER_LEVELS-1, from ws2812_dither_bias()).
+ *
+ * Averaged over the four bias values the result matches ws2812_color_scale()
+ * to within one step, which is what makes the grain cancel rather than shift
+ * the colour.
+ */
+ws2812_color_t ws2812_color_scale_dither(ws2812_color_t c, uint8_t brightness,
+                                         uint8_t bias);
+
 #ifdef __cplusplus
 }
 #endif

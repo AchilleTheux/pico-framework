@@ -12,6 +12,7 @@ target_link_libraries(app_mqtt_test PRIVATE
     pico_framework::cli
     pico_framework::wifi
     pico_framework::mqtt
+    pico_framework::json
     pico_framework::persistent_config
 )
 

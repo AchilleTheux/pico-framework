@@ -47,6 +47,38 @@ component depends on `wifi` for the network stack in any case, so reusing its
 retry policy costs nothing extra and avoids maintaining two backoff schedules
 that are supposed to behave identically.
 
+## Clean sessions, and why on_connect is not optional
+
+lwIP always sends CONNECT with the clean-session flag set, and there is no way
+to ask it not to. The broker therefore discards this client's subscriptions
+the moment the session drops. After a reconnect the topics are simply gone:
+messages stop arriving, `mqtt_is_connected()` reports true throughout, and
+nothing anywhere reports an error. It looks exactly like a broker that stopped
+publishing.
+
+`mqtt_config_t::on_connect` is called once for every accepted session -- the
+first one and every reconnection -- which is where re-subscribing belongs:
+
+```c
+static void on_connect(void *arg)
+{
+    my_app_t *app = arg;
+
+    mqtt_subscribe_topic(&app->mqtt, "homeassistant/light/pico1/set", 1);
+    publish_discovery(app);              /* retained, so it must be resent */
+    mqtt_publish_message(&app->mqtt, availability_topic, "online", 6, 1, true);
+}
+```
+
+Anything a device announces about itself belongs here for the same reason. It
+runs from lwIP's connection callback with the session already up, so
+`mqtt_subscribe_topic()` and `mqtt_publish_message()` both work from inside it;
+the usual callback discipline applies, so do the small thing and leave the long
+one to the main loop.
+
+`mqtt_sessions()` counts accepted sessions if you would rather notice the
+change by polling than by callback.
+
 ## Naming
 
 `mqtt.c` includes lwIP's own `lwip/apps/mqtt.h`, which already defines
@@ -140,6 +172,24 @@ dependency and an `altcp_tls_config`, not a change to this component's shape.
   * `unsub` stops delivery to that topic; a message published to it
     afterwards does not arrive.
   * `mqtt_messages_dropped()` stayed at 0 throughout.
+* `on_connect` and large publishes were validated on the same board against
+  `broker.hivemq.com`, 2026-09-03:
+  * `on_connect` fires on the first accepted session, ahead of the main loop
+    noticing the state change.
+  * `discovery` builds a 464-byte document with [`json`](../json/) and
+    publishes it; an independent subscriber received all 464 bytes intact.
+    That is past lwIP's 256-byte default `MQTT_OUTPUT_RINGBUF_SIZE`, so it
+    also confirms the override in `wifi`'s `lwipopts.h` -- without it the
+    publish fails with `ERR_MEM` and nothing reaches the wire.
+  * The board's own subscription to that topic counted the 464-byte message in
+    `mqtt_messages_dropped()` rather than delivering it truncated, which is
+    `MQTT_MAX_MESSAGE_LENGTH` behaving as documented and independent
+    confirmation that the payload really did exceed 256 bytes end to end.
+  * `drop` closes and reopens the session: `on_connect` fires again for
+    session 3 and replays the standing subscription, and a message published
+    from off-board afterwards arrives at `on_message`. Without the callback
+    that subscription would have been silently lost -- the failure this whole
+    section is about.
 
 ### mqtt_set_inpub_callback() on the very first connect -- also found on hardware
 

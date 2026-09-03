@@ -88,6 +88,7 @@ typedef struct {
     uint16_t length;
     bool is_rgbw;
     uint8_t brightness;
+    const uint8_t *gamma_table;   /* NULL when correction is off */
 
     uint32_t *wire_buffer;
     int dma_channel;        /* -1 when there is no wire buffer */
@@ -125,6 +126,26 @@ void ws2812_clear(ws2812_strip_t *strip);
  */
 void ws2812_set_brightness(ws2812_strip_t *strip, uint8_t brightness);
 uint8_t ws2812_get_brightness(const ws2812_strip_t *strip);
+
+/*
+ * Optional perceptual correction, applied per channel as the frame is encoded
+ * -- after brightness, which is the only order that works.
+ *
+ * Gamma maps a value to what it has to be for the eye to read it as that
+ * fraction of full. Scaling a corrected value undoes the correction, so an
+ * application that gamma-corrects its own pixel buffer and then calls
+ * ws2812_set_brightness() gets neither: it gets a curve applied to a curve.
+ * Handing the table here instead puts the correction at the end of the
+ * pipeline, where the value is otherwise about to go out on the wire.
+ *
+ * `table` is borrowed, not copied, and must outlive the strip --
+ * ws2812_gamma_table is a constant and always satisfies that. NULL turns
+ * correction off, which is the default and what a strip used for signalling
+ * rather than lighting wants.
+ *
+ * The white channel of an RGBW strip is corrected along with the others.
+ */
+void ws2812_set_gamma(ws2812_strip_t *strip, const uint8_t *table);
 
 static inline uint16_t ws2812_length(const ws2812_strip_t *strip)
 {

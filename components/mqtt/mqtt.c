@@ -208,6 +208,16 @@ static void mqtt_connection_status_handler(mqtt_client_t *client, void *arg,
     if (status == MQTT_CONNECT_ACCEPTED) {
         wifi_retry_reset(&mqtt->retry);
         mqtt->state = MQTT_STATE_CONNECTED;
+        mqtt->sessions++;
+
+        /*
+         * State first, callback second: on_connect exists to subscribe and to
+         * re-announce, and both of those go through calls that refuse unless
+         * this instance already believes it is connected.
+         */
+        if (mqtt->config.on_connect != NULL) {
+            mqtt->config.on_connect(mqtt->config.on_connect_arg);
+        }
         return;
     }
     handle_failure(mqtt);
