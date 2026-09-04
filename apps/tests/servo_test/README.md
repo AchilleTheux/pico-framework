@@ -65,6 +65,8 @@ picocom -b 115200 /dev/ttyACM0
 ```text
 servo> help
 servo> scan                    find every servo on the bus
+servo> discover                sweep every baud rate, for a used servo
+servo> discover 1              the same, looking for one id: much faster
 servo> ping 1
 servo> regs                    list the control table with widths
 servo> read 1 present_position registers by name, or by address
@@ -74,7 +76,10 @@ servo> torque 1 1              nothing moves until this is on
 servo> pos 1                   where is it
 servo> pos 1 512               go there
 servo> status 1                position, speed, load, temperature, voltage
-servo> baud 500000             change bus speed on the fly
+servo> baud 500000             change this end's speed only
+servo> setbaud 1 500000        change the servo's speed, and follow it
+servo> setbaud all 1000000     the whole bus at once (unacknowledged)
+servo> reset 3 confirm         factory settings; one servo on the bus only
 servo> soak 1 1000             hammer the link and count failures
 servo> stats                   retries, timeouts, checksum errors
 servo> clear
@@ -84,6 +89,10 @@ servo> clear
 
 1. `scan` — with one servo attached, exactly one ID should answer. If none
    does, the problem is wiring or baud rate, not the servo.
+   For a servo that has been used before, go straight to `discover`: it tries
+   every rate the family supports and reports which IDs answer at each, which
+   is the only way to tell "wrong baud rate" apart from "not wired". It leaves
+   the bus at the rate it found servos on.
 2. `read 1 model_number` — proves a real reply, checksum and all, not just a
    line that idles at the right level.
 3. `torque 1 1`, then `pos 1 512` — proves the write path.
@@ -93,11 +102,28 @@ servo> clear
 5. `soak 1 1000`, then `stats` — proves the link is *reliable*, not merely
    working. Zero retries over a thousand reads is a healthy bus.
 
+## Starting from a servo somebody else configured
+
+```text
+servo> discover                which rate is it at, and which id
+servo> setbaud 5 1000000       bring it up to the bus speed
+servo> write 5 id 3            or reset 5 confirm to start from the factory
+```
+
+`reset` is guarded twice, because it takes the ID with it and there is no undo:
+the word `confirm` has to be typed, and the bus has to have exactly one servo
+on it. Reset two servos on one bus and they both answer as id 1 afterwards,
+which is a worse position than the one the reset was meant to fix.
+
 ## Interpreting failures
 
 | Symptom | Likely cause |
 |---------|--------------|
-| `scan` finds nothing | baud rate mismatch (a factory servo is 1 Mbaud), wiring, or no servo power |
+| `scan` finds nothing | baud rate mismatch (a factory servo is 1 Mbaud), wiring, or no servo power — run `discover` to tell those apart |
+| `discover` finds nothing either | not the baud rate: wiring, power, or the `echo` setting |
+| `setbaud` reports no answer | the servo did not take the change; the bus has been put back where it was, so `scan` still works |
+| `reset` refuses | either `confirm` is missing, or more than one servo is on the bus — reset would give them the same id |
+| `reset` sent but nothing came back | run `discover`: the servo is somewhere other than the factory rate, so the reset did not land as expected |
 | `scan` finds every ID | the bus is echoing rather than answering — the `echo` setting does not match the wiring |
 | ping works, `read` times out | the servo's status return level is set to answer pings only |
 | positions look plausible but wrong | byte order: an SCS servo on the STS profile turns 2048 into 8 |

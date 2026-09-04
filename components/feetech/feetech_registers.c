@@ -79,6 +79,48 @@ bool feetech_register_is_eeprom(uint8_t address)
     return info != NULL && info->eeprom;
 }
 
+static const uint32_t g_baud_rates[] = {
+    1000000, 500000, 250000, 128000, 115200, 76800, 57600, 38400,
+};
+
+uint32_t feetech_baud_index_to_rate(uint8_t index)
+{
+    const size_t count = sizeof(g_baud_rates) / sizeof(g_baud_rates[0]);
+    return (index < count) ? g_baud_rates[index] : 0;
+}
+
+bool feetech_rate_to_baud_index(uint32_t rate, uint8_t *index)
+{
+    if (index == NULL || rate == 0) {
+        return false;
+    }
+
+    /*
+     * Nearest entry rather than an exact match, so that 125000 for 128000, or
+     * a rate read back from a host UART that quantised it, still resolves. The
+     * table's own steps are far wider than 3%, so this cannot pick a
+     * neighbour by accident.
+     */
+    for (size_t i = 0; i < sizeof(g_baud_rates) / sizeof(g_baud_rates[0]); i++) {
+        const uint32_t candidate = g_baud_rates[i];
+        const uint32_t difference =
+            candidate > rate ? candidate - rate : rate - candidate;
+        if ((uint64_t)difference * 100u <= (uint64_t)rate * 3u) {
+            *index = (uint8_t)i;
+            return true;
+        }
+    }
+    return false;
+}
+
+const uint32_t *feetech_baud_rate_table(size_t *count)
+{
+    if (count != NULL) {
+        *count = sizeof(g_baud_rates) / sizeof(g_baud_rates[0]);
+    }
+    return g_baud_rates;
+}
+
 uint32_t feetech_position_to_millidegrees(uint16_t position)
 {
     if (position > FEETECH_POSITION_MAX) {

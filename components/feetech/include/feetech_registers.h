@@ -17,6 +17,7 @@
 #define PICO_FRAMEWORK_FEETECH_REGISTERS_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "servo_protocol.h"
@@ -95,6 +96,20 @@ typedef enum {
 #define FEETECH_LOCK_OPEN  0u
 #define FEETECH_LOCK_CLOSED 1u
 
+/*
+ * Values for FEETECH_REG_BAUD_RATE. The register holds an index into a fixed
+ * table, not a rate, and the change takes effect as the write lands.
+ */
+#define FEETECH_BAUD_INDEX_1000000 0u
+#define FEETECH_BAUD_INDEX_500000  1u
+#define FEETECH_BAUD_INDEX_250000  2u
+#define FEETECH_BAUD_INDEX_128000  3u
+#define FEETECH_BAUD_INDEX_115200  4u
+#define FEETECH_BAUD_INDEX_76800   5u
+#define FEETECH_BAUD_INDEX_57600   6u
+#define FEETECH_BAUD_INDEX_38400   7u
+#define FEETECH_BAUD_INDEX_MAX     7u
+
 /* Values for FEETECH_REG_MODE. */
 #define FEETECH_MODE_POSITION 0u
 #define FEETECH_MODE_SPEED    1u
@@ -116,6 +131,25 @@ static inline servo_endianness_t feetech_endianness(feetech_model_t model)
 /* ---------------------------------------------------------------------------
  * Conversions
  * -------------------------------------------------------------------------*/
+
+/* ---------------------------------------------------------------------------
+ * Baud rate
+ * -------------------------------------------------------------------------*/
+
+/* Bus rate for a FEETECH_BAUD_INDEX_* value, or 0 if the index is unknown. */
+uint32_t feetech_baud_index_to_rate(uint8_t index);
+
+/*
+ * The index that gives `rate`, within 3% so a nearby request still resolves.
+ * Returns false and leaves `*index` alone when nothing in the table is close.
+ */
+bool feetech_rate_to_baud_index(uint32_t rate, uint8_t *index);
+
+/*
+ * The whole table, fastest first. `count` is always written. For sweeping a
+ * bus whose speed is unknown.
+ */
+const uint32_t *feetech_baud_rate_table(size_t *count);
 
 uint32_t feetech_position_to_millidegrees(uint16_t position);
 uint16_t feetech_millidegrees_to_position(uint32_t millidegrees);

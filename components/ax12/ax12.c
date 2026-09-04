@@ -1,3 +1,5 @@
+#include "pico/time.h"
+
 #include "ax12.h"
 
 servo_bus_result_t ax12_bus_init(servo_bus_t *bus, half_duplex_uart_t *uart)
@@ -251,6 +253,131 @@ servo_bus_result_t ax12_set_id(servo_bus_t *bus, uint8_t id, uint8_t new_id)
         return SERVO_BUS_ERR_INVALID_ARG;
     }
     return servo_bus_write_value(bus, id, AX12_REG_ID, new_id, 1, NULL);
+}
+
+servo_bus_result_t ax12_set_baudrate(servo_bus_t *bus, uint8_t id, uint32_t rate)
+{
+    if (bus == NULL) {
+        return SERVO_BUS_ERR_INVALID_ARG;
+    }
+
+    uint8_t value;
+    if (!ax12_rate_to_baud_value(rate, &value)) {
+        return SERVO_BUS_ERR_INVALID_ARG;
+    }
+
+    /* The servo will run at the divisor's exact rate, whatever the caller
+       called it, so this is what the host has to be clocked at. */
+    const uint32_t exact = ax12_baud_value_to_rate(value);
+
+    /*
+     * Check the host can reach it before writing anything. Setting the rate
+     * and putting it back is the only way to ask, and it costs nothing: the
+     * driver refuses an unreachable rate without touching the divider.
+     */
+    const uint32_t previous = servo_bus_get_baudrate(bus);
+    servo_bus_result_t result = servo_bus_set_baudrate(bus, exact);
+    if (result != SERVO_BUS_OK) {
+        return result;
+    }
+    result = servo_bus_set_baudrate(bus, previous);
+    if (result != SERVO_BUS_OK) {
+        return result;
+    }
+
+    /*
+     * One attempt. The acknowledgement is expected to go missing, and retrying
+     * would only put more bytes on a wire the servo has already stopped
+     * listening to at this rate.
+     */
+    const uint8_t saved_retries = bus->max_retries;
+    bus->max_retries = 0;
+    result = servo_bus_write_value(bus, id, AX12_REG_BAUD_RATE, value, 1, NULL);
+    bus->max_retries = saved_retries;
+
+    /*
+     * Only a packet that never went out is a reason to stop. Anything else —
+     * no reply, a truncated one, a checksum that fails — is what a servo
+     * switching rates half way through its own acknowledgement looks like, and
+     * that is a write that landed. The ping below decides; see the header.
+     */
+    if (result == SERVO_BUS_ERR_TRANSPORT || result == SERVO_BUS_ERR_INVALID_ARG) {
+        return result;
+    }
+
+    result = servo_bus_set_baudrate(bus, exact);
+    if (result != SERVO_BUS_OK) {
+        return result;
+    }
+
+    if (id == SERVO_PROTOCOL_BROADCAST_ID) {
+        return SERVO_BUS_OK; /* nothing answered, so there is nothing to check */
+    }
+
+    result = servo_bus_ping(bus, id, NULL);
+    if (result != SERVO_BUS_OK) {
+        /* The write did not take, or took a rate we did not ask for. Go back
+           so the caller is talking to the rest of the bus again. */
+        (void)servo_bus_set_baudrate(bus, previous);
+    }
+    return result;
+}
+
+servo_bus_result_t ax12_factory_reset(servo_bus_t *bus, uint8_t id)
+{
+    if (bus == NULL || id == SERVO_PROTOCOL_BROADCAST_ID) {
+        return SERVO_BUS_ERR_INVALID_ARG;
+    }
+
+    /*
+     * Check the host can be clocked at the factory rate before sending
+     * anything: a reset the host cannot follow leaves a servo this bus can no
+     * longer reach. Setting the rate and putting it back is how to ask, and it
+     * costs nothing — the driver refuses an unreachable rate without touching
+     * the divider.
+     */
+    const uint32_t previous = servo_bus_get_baudrate(bus);
+    servo_bus_result_t result = servo_bus_set_baudrate(bus, AX12_DEFAULT_BAUDRATE);
+    if (result != SERVO_BUS_OK) {
+        return result;
+    }
+    result = servo_bus_set_baudrate(bus, previous);
+    if (result != SERVO_BUS_OK) {
+        return result;
+    }
+
+    /*
+     * The acknowledgement, if it arrives, is sent before the servo reboots and
+     * says nothing about the outcome, so only a packet that never went out is
+     * a reason to stop here. The polling below is what decides.
+     */
+    result = servo_bus_factory_reset(bus, id, NULL);
+    if (result == SERVO_BUS_ERR_TRANSPORT || result == SERVO_BUS_ERR_INVALID_ARG) {
+        return result;
+    }
+
+    result = servo_bus_set_baudrate(bus, AX12_DEFAULT_BAUDRATE);
+    if (result != SERVO_BUS_OK) {
+        return result;
+    }
+
+    /*
+     * Poll rather than sleep for a fixed time. The reboot time is not in the
+     * datasheet, so the only honest thing to do is keep asking until the servo
+     * answers or the allowance runs out.
+     */
+    const absolute_time_t deadline = make_timeout_time_ms(AX12_RESET_TIMEOUT_MS);
+    do {
+        sleep_ms(50);
+        if (servo_bus_ping(bus, AX12_DEFAULT_ID, NULL) == SERVO_BUS_OK) {
+            return SERVO_BUS_OK;
+        }
+    } while (!time_reached(deadline));
+
+    /* It never came back. Put the bus where the caller found it, so whatever
+       else is on the bus still answers. */
+    (void)servo_bus_set_baudrate(bus, previous);
+    return SERVO_BUS_ERR_TIMEOUT;
 }
 
 servo_bus_result_t ax12_set_angle_limits(servo_bus_t *bus, uint8_t id,

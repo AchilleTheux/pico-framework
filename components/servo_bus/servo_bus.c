@@ -282,6 +282,63 @@ servo_bus_result_t servo_bus_sync_write(servo_bus_t *bus, uint8_t reg, uint8_t w
                     NULL, 0, NULL);
 }
 
+servo_bus_result_t servo_bus_factory_reset(servo_bus_t *bus, uint8_t id,
+                                           uint8_t *error_out)
+{
+    if (error_out != NULL) {
+        *error_out = 0;
+    }
+    if (bus == NULL || !bus->initialised) {
+        return SERVO_BUS_ERR_INVALID_ARG;
+    }
+
+    uint8_t request[SERVO_PROTOCOL_MAX_PACKET_SIZE];
+    size_t request_len = 0;
+
+    if (servo_protocol_build(request, sizeof(request), &request_len, id,
+                             SERVO_INST_RESET, NULL, 0) != SERVO_PROTOCOL_OK) {
+        return SERVO_BUS_ERR_INVALID_ARG;
+    }
+
+    /*
+     * One attempt. A retry would be addressed to an ID the servo has just
+     * stopped having, at a rate it has just stopped listening at, so it can
+     * only waste the timeout — and if the first attempt did land, resetting an
+     * already-reset servo is not what the retry would be doing.
+     */
+    const uint8_t saved_retries = bus->max_retries;
+    bus->max_retries = 0;
+    const servo_bus_result_t result =
+        transact(bus, request, request_len, id, NULL, 0, error_out);
+    bus->max_retries = saved_retries;
+
+    return result;
+}
+
+/* ---------------------------------------------------------------------------
+ * Bus speed
+ * -------------------------------------------------------------------------*/
+
+uint32_t servo_bus_get_baudrate(const servo_bus_t *bus)
+{
+    return (bus != NULL && bus->initialised) ? bus->uart->baudrate : 0;
+}
+
+servo_bus_result_t servo_bus_set_baudrate(servo_bus_t *bus, uint32_t baudrate)
+{
+    if (bus == NULL || !bus->initialised || baudrate == 0) {
+        return SERVO_BUS_ERR_INVALID_ARG;
+    }
+
+    const half_duplex_uart_result_t result =
+        half_duplex_uart_set_baudrate(bus->uart, baudrate);
+    if (result == HALF_DUPLEX_UART_ERR_BAUDRATE) {
+        /* Unreachable, and the driver refused before touching the divider. */
+        return SERVO_BUS_ERR_INVALID_ARG;
+    }
+    return result == HALF_DUPLEX_UART_OK ? SERVO_BUS_OK : SERVO_BUS_ERR_TRANSPORT;
+}
+
 /* ---------------------------------------------------------------------------
  * Diagnostics
  * -------------------------------------------------------------------------*/

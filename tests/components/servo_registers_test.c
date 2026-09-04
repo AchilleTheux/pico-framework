@@ -397,6 +397,189 @@ TEST(the_ax12_and_feetech_direction_bits_do_not_coincide)
     CHECK_EQ_INT(ax12_decode_signed_magnitude(raw), 500); /* reads as positive */
 }
 
+/* ---------------------------------------------------------------------------
+ * Baud rate conversion
+ *
+ * The failure this guards against is a mismatch: a servo running at one rate
+ * and a host clocked at another. Both ends are set from these functions, so a
+ * wrong answer here is a bus that does not work at all — or, worse, one that
+ * works until it is warm.
+ * -------------------------------------------------------------------------*/
+
+TEST(ax12_baud_divisors_give_the_datasheet_rates)
+{
+    /* Address 4 in the AX-12 control table, as the datasheet tabulates it. */
+    CHECK_EQ_U32(ax12_baud_value_to_rate(1), 1000000);
+    CHECK_EQ_U32(ax12_baud_value_to_rate(3), 500000);
+    CHECK_EQ_U32(ax12_baud_value_to_rate(4), 400000);
+    CHECK_EQ_U32(ax12_baud_value_to_rate(7), 250000);
+    CHECK_EQ_U32(ax12_baud_value_to_rate(9), 200000);
+
+    /* The four the datasheet gives rounded names. These are the real rates. */
+    CHECK_EQ_U32(ax12_baud_value_to_rate(16), 117647);   /* "115200" */
+    CHECK_EQ_U32(ax12_baud_value_to_rate(34), 57142);    /* "57600" */
+    CHECK_EQ_U32(ax12_baud_value_to_rate(103), 19230);   /* "19200" */
+    CHECK_EQ_U32(ax12_baud_value_to_rate(207), 9615);    /* "9600" */
+}
+
+TEST(ax12_baud_value_zero_is_not_a_rate)
+{
+    /* 2 Mbaud, which the servo's UART does not do; the framework refuses it
+       rather than writing a divisor the servo will not honour. */
+    CHECK_EQ_U32(ax12_baud_value_to_rate(0), 0);
+    CHECK_EQ_U32(ax12_baud_value_to_rate(255), 0);
+}
+
+TEST(ax12_datasheet_names_and_real_rates_select_the_same_divisor)
+{
+    /*
+     * Both spellings have to work. A caller reading the datasheet asks for
+     * 115200; a caller reading the rate back out of the framework asks for
+     * 117647. Landing on different divisors would leave the two ends 2% apart.
+     */
+    uint8_t from_name = 0, from_rate = 0;
+    CHECK(ax12_rate_to_baud_value(115200, &from_name));
+    CHECK(ax12_rate_to_baud_value(117647, &from_rate));
+    CHECK_EQ_INT(from_name, 16);
+    CHECK_EQ_INT(from_rate, 16);
+
+    CHECK(ax12_rate_to_baud_value(57600, &from_name));
+    CHECK_EQ_INT(from_name, 34);
+    CHECK(ax12_rate_to_baud_value(9600, &from_name));
+    CHECK_EQ_INT(from_name, 207);
+    CHECK(ax12_rate_to_baud_value(19200, &from_name));
+    CHECK_EQ_INT(from_name, 103);
+    CHECK(ax12_rate_to_baud_value(1000000, &from_name));
+    CHECK_EQ_INT(from_name, 1);
+}
+
+TEST(ax12_unreachable_rates_are_refused_rather_than_rounded)
+{
+    uint8_t value = 0xAA;
+
+    /* Above the top divisor: rounding would silently hand back 1 Mbaud. */
+    CHECK(!ax12_rate_to_baud_value(2000000, &value));
+    CHECK(!ax12_rate_to_baud_value(1500000, &value));
+
+    /* Below the bottom one. */
+    CHECK(!ax12_rate_to_baud_value(4800, &value));
+    CHECK(!ax12_rate_to_baud_value(0, &value));
+
+    /* In range, but no divisor lands within 3%: 700000 sits between the
+       666666 and 1000000 steps, 5% from the nearer of them. */
+    CHECK(!ax12_rate_to_baud_value(700000, &value));
+
+    /* Every refusal left the caller's variable alone. */
+    CHECK_EQ_INT(value, 0xAA);
+
+    /*
+     * Inside the tolerance the nearest divisor wins even when the rate is not
+     * one the datasheet names: 150000 resolves to the divisor for 153846, and
+     * because the caller clocks the host from ax12_baud_value_to_rate() the
+     * two ends still agree exactly.
+     */
+    CHECK(ax12_rate_to_baud_value(150000, &value));
+    CHECK_EQ_U32(ax12_baud_value_to_rate(value), 153846);
+}
+
+TEST(every_rate_in_the_ax12_sweep_table_round_trips)
+{
+    /*
+     * The sweep sets the host to each of these in turn, so each has to convert
+     * back to the divisor that produces it exactly. An entry that did not
+     * would make the sweep miss servos that are in fact there.
+     */
+    size_t count = 0;
+    const uint32_t *rates = ax12_baud_rate_table(&count);
+
+    CHECK(rates != NULL);
+    CHECK(count > 0);
+
+    for (size_t i = 0; i < count; i++) {
+        uint8_t value = 0;
+        if (!ax12_rate_to_baud_value(rates[i], &value)) {
+            printf("    rate %u has no divisor\n", (unsigned)rates[i]);
+            CHECK(false);
+            continue;
+        }
+        CHECK_EQ_U32(ax12_baud_value_to_rate(value), rates[i]);
+    }
+
+    /* Fastest first, so a sweep tries the factory setting before the slow
+       rates whose timeouts dominate the sweep's duration. */
+    for (size_t i = 1; i < count; i++) {
+        CHECK(rates[i] < rates[i - 1]);
+    }
+}
+
+TEST(feetech_baud_indices_give_the_datasheet_rates)
+{
+    CHECK_EQ_U32(feetech_baud_index_to_rate(FEETECH_BAUD_INDEX_1000000), 1000000);
+    CHECK_EQ_U32(feetech_baud_index_to_rate(FEETECH_BAUD_INDEX_500000), 500000);
+    CHECK_EQ_U32(feetech_baud_index_to_rate(FEETECH_BAUD_INDEX_250000), 250000);
+    CHECK_EQ_U32(feetech_baud_index_to_rate(FEETECH_BAUD_INDEX_128000), 128000);
+    CHECK_EQ_U32(feetech_baud_index_to_rate(FEETECH_BAUD_INDEX_115200), 115200);
+    CHECK_EQ_U32(feetech_baud_index_to_rate(FEETECH_BAUD_INDEX_76800), 76800);
+    CHECK_EQ_U32(feetech_baud_index_to_rate(FEETECH_BAUD_INDEX_57600), 57600);
+    CHECK_EQ_U32(feetech_baud_index_to_rate(FEETECH_BAUD_INDEX_38400), 38400);
+
+    /* Past the end of the table, rather than an eighth entry nobody has. */
+    CHECK_EQ_U32(feetech_baud_index_to_rate(FEETECH_BAUD_INDEX_MAX + 1u), 0);
+    CHECK_EQ_U32(feetech_baud_index_to_rate(255), 0);
+}
+
+TEST(every_rate_in_the_feetech_sweep_table_round_trips)
+{
+    size_t count = 0;
+    const uint32_t *rates = feetech_baud_rate_table(&count);
+
+    CHECK(rates != NULL);
+    CHECK_EQ_U32((uint32_t)count, FEETECH_BAUD_INDEX_MAX + 1u);
+
+    for (size_t i = 0; i < count; i++) {
+        uint8_t index = 0xFF;
+        if (!feetech_rate_to_baud_index(rates[i], &index)) {
+            printf("    rate %u has no index\n", (unsigned)rates[i]);
+            CHECK(false);
+            continue;
+        }
+        CHECK_EQ_U32((uint32_t)index, (uint32_t)i);
+        CHECK_EQ_U32(feetech_baud_index_to_rate(index), rates[i]);
+    }
+
+    for (size_t i = 1; i < count; i++) {
+        CHECK(rates[i] < rates[i - 1]);
+    }
+}
+
+TEST(feetech_rates_off_the_table_are_refused)
+{
+    uint8_t index = 0xAA;
+
+    CHECK(!feetech_rate_to_baud_index(9600, &index));
+    CHECK(!feetech_rate_to_baud_index(2000000, &index));
+    CHECK(!feetech_rate_to_baud_index(200000, &index));
+    CHECK(!feetech_rate_to_baud_index(0, &index));
+    CHECK_EQ_INT(index, 0xAA);
+
+    /* Close enough counts: 125000 is 2.3% off the table's 128000, which is
+       what a host UART's quantisation looks like. */
+    CHECK(feetech_rate_to_baud_index(125000, &index));
+    CHECK_EQ_INT(index, FEETECH_BAUD_INDEX_128000);
+}
+
+TEST(the_two_families_number_their_baud_registers_differently)
+{
+    /*
+     * A Feetech register holds a table index and an AX-12 register holds a
+     * divisor, so the same number means different rates. Writing 4 to both
+     * asks for 115200 on one and 400000 on the other — which is why neither
+     * component exposes the raw value as a rate.
+     */
+    CHECK_EQ_U32(feetech_baud_index_to_rate(4), 115200);
+    CHECK_EQ_U32(ax12_baud_value_to_rate(4), 400000);
+}
+
 TEST_MAIN(
     RUN(ax12_two_byte_registers_are_two_bytes);
     RUN(ax12_single_byte_registers_are_one_byte);
@@ -431,4 +614,14 @@ TEST_MAIN(
     RUN(ax12_position_conversion_rounds_to_nearest);
     RUN(feetech_position_conversion_rounds_to_nearest);
     RUN(the_ax12_and_feetech_direction_bits_do_not_coincide);
+
+    RUN(ax12_baud_divisors_give_the_datasheet_rates);
+    RUN(ax12_baud_value_zero_is_not_a_rate);
+    RUN(ax12_datasheet_names_and_real_rates_select_the_same_divisor);
+    RUN(ax12_unreachable_rates_are_refused_rather_than_rounded);
+    RUN(every_rate_in_the_ax12_sweep_table_round_trips);
+    RUN(feetech_baud_indices_give_the_datasheet_rates);
+    RUN(every_rate_in_the_feetech_sweep_table_round_trips);
+    RUN(feetech_rates_off_the_table_are_refused);
+    RUN(the_two_families_number_their_baud_registers_differently);
 )

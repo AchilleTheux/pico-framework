@@ -13,6 +13,7 @@
 #define PICO_FRAMEWORK_AX12_REGISTERS_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -71,6 +72,15 @@ extern "C" {
 #define AX12_ID_MAX 253u
 
 /*
+ * AX12_REG_BAUD_RATE holds a divisor, not a rate: the bus runs at
+ * 2000000 / (value + 1). Value 0 would ask for 2 Mbaud, which the servo's own
+ * UART does not do, so the usable range starts at 1.
+ */
+#define AX12_BAUD_CLOCK 2000000u
+#define AX12_BAUD_VALUE_MIN 1u
+#define AX12_BAUD_VALUE_MAX 254u
+
+/*
  * Width in bytes of the register at `address`, or 0 when the address is not a
  * documented register start. Addressing the high half of a two-byte register
  * returns 0 rather than 1, so a typo is caught instead of silently reading
@@ -104,6 +114,40 @@ uint16_t ax12_millidegrees_to_position(uint32_t millidegrees);
  * value, negative for clockwise, so the two can be compared and plotted.
  */
 int16_t ax12_decode_signed_magnitude(uint16_t raw);
+
+/* ---------------------------------------------------------------------------
+ * Baud rate
+ *
+ * The divisor is exposed as a rate in both directions, because the interesting
+ * mistake here is a mismatch: the servo and the host have to agree, and the
+ * datasheet's names for these rates are rounded. A servo set to "115200"
+ * actually runs at 117647 baud, 2% away — inside a UART's tolerance on its own
+ * but not once the host's own quantisation is added, which is why these
+ * functions deal in the exact rate.
+ * -------------------------------------------------------------------------*/
+
+/* Exact rate for a AX12_REG_BAUD_RATE value, or 0 when the value is outside
+   AX12_BAUD_VALUE_MIN..MAX. */
+uint32_t ax12_baud_value_to_rate(uint8_t value);
+
+/*
+ * Nearest register value for `rate`, so that both a datasheet name (115200)
+ * and the exact rate (117647) select the same divisor.
+ *
+ * Returns false, leaving `*value` alone, when nothing within 3% of `rate` is
+ * reachable. 3% rather than the UART's 2% because the names themselves are up
+ * to 2.1% out; the caller should clock the host at ax12_baud_value_to_rate()
+ * of the result rather than at what it asked for.
+ */
+bool ax12_rate_to_baud_value(uint32_t rate, uint8_t *value);
+
+/*
+ * The rates the datasheet lists, fastest first, as exact rates. `count` is
+ * always written. For sweeping a bus whose speed is unknown: the servo is
+ * almost certainly at one of these, and there are nine of them rather than 254
+ * divisors.
+ */
+const uint32_t *ax12_baud_rate_table(size_t *count);
 
 /* Present voltage is reported in tenths of a volt. */
 static inline uint32_t ax12_voltage_to_millivolts(uint8_t raw)

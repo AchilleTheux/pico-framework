@@ -138,6 +138,67 @@ servo_bus_result_t ax12_get_voltage_millivolts(servo_bus_t *bus, uint8_t id,
 servo_bus_result_t ax12_set_id(servo_bus_t *bus, uint8_t id, uint8_t new_id);
 
 /*
+ * Move a servo, and the host with it, to `rate`.
+ *
+ * Both ends have to move or the servo is unreachable, so this call does both:
+ * it writes AX12_REG_BAUD_RATE, re-clocks the bus, and pings to confirm the
+ * servo is answering at the new rate. `rate` may be a datasheet name — 115200
+ * is accepted and both ends end up at the 117647 baud that name really means.
+ * See ax12_rate_to_baud_value() for what is reachable.
+ *
+ * Nothing is written when `rate` is not reachable at both ends, so a refusal
+ * costs neither an EEPROM write nor a servo that has vanished.
+ *
+ * Servos *other* than `id` are left at the old rate and so are left behind.
+ * To move a whole bus at once, pass SERVO_PROTOCOL_BROADCAST_ID: every servo
+ * takes the change and the host follows. Nothing acknowledges a broadcast, so
+ * that form cannot confirm anything — follow it with ax12_scan().
+ *
+ * The servo's acknowledgement is sent as the write takes effect, and whether
+ * it arrives at the old rate, at the new one, or half in each is not something
+ * to rely on. A reply that is missing or corrupted is therefore not treated as
+ * a failure — only a packet that could not be sent at all is; the ping
+ * afterwards is what decides.
+ */
+servo_bus_result_t ax12_set_baudrate(servo_bus_t *bus, uint8_t id, uint32_t rate);
+
+/*
+ * How long a servo is given to come back after a factory reset.
+ *
+ * The datasheet does not specify a reboot time, so this is a margin rather
+ * than a figure: the servo is polled until it answers or this expires.
+ */
+#ifndef AX12_RESET_TIMEOUT_MS
+#define AX12_RESET_TIMEOUT_MS 1000u
+#endif
+
+/*
+ * Put a servo back to its factory settings and follow it there.
+ *
+ * The rescue for a servo whose configuration is unknown or wrong: it restores
+ * the whole EEPROM, so the servo comes back at AX12_DEFAULT_ID and
+ * AX12_DEFAULT_BAUDRATE with its angle limits, compliance and alarms as they
+ * left the factory. The host follows to the factory rate, polls until the
+ * servo answers on the factory ID, and only then reports success — so a
+ * SERVO_BUS_OK here means the servo is reachable at ID 1, not merely that a
+ * packet went out.
+ *
+ * `id` addresses the servo as it is *now*. Nothing is sent when the host
+ * cannot be clocked at the factory rate, and if the servo does not come back
+ * the bus is returned to the rate it was running.
+ *
+ * One servo at a time, and SERVO_PROTOCOL_BROADCAST_ID is refused: the reset
+ * takes the ID with it, so resetting several servos on one bus leaves them all
+ * answering as ID 1. Give each one its own ID again, with ax12_set_id(), before
+ * resetting the next.
+ *
+ * This is not the way out of an unknown *baud rate* — the servo has to hear the
+ * instruction for it to do anything, so ax12_scan() across
+ * ax12_baud_rate_table() comes first.
+ */
+servo_bus_result_t ax12_factory_reset(servo_bus_t *bus, uint8_t id);
+
+/*
  * Both limits zero puts the servo in continuous-rotation mode, where
  * ax12_set_moving_speed() controls direction and speed and goal position is
  * ignored.

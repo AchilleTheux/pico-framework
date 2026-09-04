@@ -55,7 +55,7 @@ is the one's complement of the sum from `ID` to the last parameter.
 | **Timeouts** | Every transaction is bounded. The wait is the reply's transmission time at the *current* baud rate plus `response_timeout_us`, so changing bus speed cannot silently tighten the margin. |
 | **Errors** | By return value. A servo that answers but reports a fault of its own is a **successful** transaction: the fault comes back through `error_out`, because a voltage warning is not a reason to discard a valid position reading. |
 | **Buffers** | Caller-owned. Packets are built on the stack; nothing is retained. |
-| **Peripheral** | Borrows a `half_duplex_uart_t` the caller owns and initialised. It does not configure or release it. |
+| **Peripheral** | Borrows a `half_duplex_uart_t` the caller owns and initialised. It does not configure or release it — with one exception, `servo_bus_set_baudrate()`, which exists because changing a servo's baud rate is only half of the operation: the host has to follow it to the new rate or the servo is gone. |
 | **Retries** | On timeout, checksum failure, malformed reply or a reply from the wrong ID. The receive FIFO is flushed first, so a retry does not read the tail of whatever confused the last attempt. |
 
 ## Bus statistics
@@ -68,6 +68,30 @@ Counts transactions, retries, timeouts, checksum errors, malformed replies and
 wrong-ID replies. A servo link usually degrades before it fails, and a retry
 count that climbs under load points at power or termination rather than at the
 code. The `servo_test` application's `soak` command exists to drive these.
+
+## Factory reset
+
+`servo_bus_factory_reset()` sends RESET, instruction `0x06` — a parameterless
+packet, `FF FF <id> 02 06 <checksum>`, checked byte for byte by a host test
+because it is the one instruction with no undo.
+
+Protocol 1.0 has no parameter to hold anything back, so the servo's whole
+EEPROM goes, ID and baud rate included. This function only sends the
+instruction; the acknowledgement arrives before the servo reboots and says
+nothing about the outcome. Use `ax12_factory_reset()` or
+`feetech_factory_reset()`, which wait for the reboot, follow the servo to its
+factory rate and confirm it came back.
+
+## Bus speed
+
+`servo_bus_set_baudrate()` re-clocks the host end and leaves the servos alone.
+Two things need that: following a servo whose own rate has just changed, and
+sweeping the rates to find a servo whose setting is unknown. An unreachable
+rate is refused with the bus left running where it was, so a sweep over a list
+of rates does not have to undo anything after a refusal.
+
+`servo_bus_get_baudrate()` reports the current rate — worth reading back rather
+than assuming, since the reply timeout is derived from it.
 
 ## Byte order
 

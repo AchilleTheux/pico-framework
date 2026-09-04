@@ -79,6 +79,64 @@ bool ax12_register_is_eeprom(uint8_t address)
     return info != NULL && info->eeprom;
 }
 
+uint32_t ax12_baud_value_to_rate(uint8_t value)
+{
+    if (value < AX12_BAUD_VALUE_MIN) {
+        return 0;
+    }
+    /* AX12_BAUD_VALUE_MAX is 254 and value is a uint8_t, so only 255 is out of
+       range at the top; the divisor cannot overflow. */
+    if (value > AX12_BAUD_VALUE_MAX) {
+        return 0;
+    }
+    return AX12_BAUD_CLOCK / ((uint32_t)value + 1u);
+}
+
+bool ax12_rate_to_baud_value(uint32_t rate, uint8_t *value)
+{
+    if (value == NULL || rate == 0) {
+        return false;
+    }
+
+    /* Nearest divisor to 2000000/rate, then step back to the register value. */
+    const uint32_t divisor = (AX12_BAUD_CLOCK + rate / 2u) / rate;
+    if (divisor < AX12_BAUD_VALUE_MIN + 1u || divisor > AX12_BAUD_VALUE_MAX + 1u) {
+        return false;
+    }
+
+    const uint8_t candidate = (uint8_t)(divisor - 1u);
+    const uint32_t actual = ax12_baud_value_to_rate(candidate);
+
+    /*
+     * Rounding the divisor always gives the closest reachable rate, but at the
+     * top of the range the steps are huge — 1 Mbaud, 667 k, 500 k — so
+     * "closest" can still be nowhere near what was asked. Reject that rather
+     * than silently setting a servo to a rate the caller did not mean.
+     */
+    const uint32_t difference = actual > rate ? actual - rate : rate - actual;
+    if ((uint64_t)difference * 100u > (uint64_t)rate * 3u) {
+        return false;
+    }
+
+    *value = candidate;
+    return true;
+}
+
+const uint32_t *ax12_baud_rate_table(size_t *count)
+{
+    /* Divisors 1, 3, 4, 7, 9, 16, 34, 103 and 207, as the exact rates they
+       produce. The datasheet calls the last four 115200, 57600, 19200 and
+       9600. */
+    static const uint32_t rates[] = {
+        1000000, 500000, 400000, 250000, 200000, 117647, 57142, 19230, 9615,
+    };
+
+    if (count != NULL) {
+        *count = sizeof(rates) / sizeof(rates[0]);
+    }
+    return rates;
+}
+
 uint32_t ax12_position_to_millidegrees(uint16_t position)
 {
     if (position > AX12_POSITION_MAX) {

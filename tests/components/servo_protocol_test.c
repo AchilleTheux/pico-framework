@@ -104,6 +104,33 @@ TEST(write_matches_the_datasheet_example)
     check_bytes("write", packet, written, expected, sizeof(expected));
 }
 
+TEST(reset_is_an_instruction_with_no_parameters)
+{
+    /*
+     * RESET to servo 1: FF FF 01 02 06 F6. The same shape as a ping with a
+     * different instruction byte, which is the whole of it — and worth
+     * checking byte for byte, because this is the one instruction whose
+     * effect cannot be undone.
+     */
+    static const uint8_t expected[] = { 0xFF, 0xFF, 0x01, 0x02, 0x06, 0xF6 };
+
+    uint8_t packet[SERVO_PROTOCOL_MAX_PACKET_SIZE];
+    size_t written = 0;
+
+    CHECK_EQ_INT(servo_protocol_build(packet, sizeof(packet), &written, 1,
+                                      SERVO_INST_RESET, NULL, 0),
+                 SERVO_PROTOCOL_OK);
+    check_bytes("reset", packet, written, expected, sizeof(expected));
+}
+
+TEST(reset_is_not_a_ping)
+{
+    /* Both are parameterless, so a wrong instruction constant would be a
+       packet that still builds and still checksums — and wipes a servo. */
+    CHECK(SERVO_INST_RESET != SERVO_INST_PING);
+    CHECK_EQ_INT(SERVO_INST_RESET, 0x06);
+}
+
 TEST(a_goal_position_write_is_little_endian_for_ax12)
 {
     /*
@@ -702,6 +729,8 @@ TEST_MAIN(
     RUN(ping_matches_the_datasheet_example);
     RUN(read_matches_the_datasheet_example);
     RUN(write_matches_the_datasheet_example);
+    RUN(reset_is_an_instruction_with_no_parameters);
+    RUN(reset_is_not_a_ping);
     RUN(a_goal_position_write_is_little_endian_for_ax12);
     RUN(a_goal_position_write_is_big_endian_when_asked);
     RUN(a_built_packet_always_carries_a_valid_checksum);

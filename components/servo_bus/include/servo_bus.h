@@ -22,7 +22,11 @@
  *   Buffers    Caller-owned. Packets are built on the stack and nothing is
  *              retained after the call.
  *   Peripheral The bus borrows a half_duplex_uart_t the caller owns and
- *              initialised; it does not configure or release it.
+ *              initialised; it does not configure or release it. The one
+ *              exception is servo_bus_set_baudrate(), which exists because
+ *              changing a servo's baud rate is only half of the operation:
+ *              the host has to follow it to the new rate or the servo is
+ *              simply gone.
  *
  * Synchronous and not thread-safe: one bus, one calling context.
  */
@@ -148,6 +152,50 @@ servo_bus_result_t servo_bus_write_value(servo_bus_t *bus, uint8_t id, uint8_t r
 servo_bus_result_t servo_bus_sync_write(servo_bus_t *bus, uint8_t reg, uint8_t width,
                                         const servo_sync_target_t *targets,
                                         uint8_t count);
+
+/*
+ * Restore a servo's whole EEPROM to its factory values: RESET, instruction
+ * 0x06.
+ *
+ * Everything goes, the ID and the baud rate included. Protocol 1.0 has no
+ * parameter to hold anything back — the "all except the ID" form exists only
+ * in Protocol 2.0 — so after this the servo is the factory servo it was, at
+ * its factory ID and factory rate, and neither end of this bus is talking to
+ * it any more until the host follows it there.
+ *
+ * That makes it a one-servo operation. Resetting two servos on one bus gives
+ * both the same ID, which is worse than whatever it was meant to fix; and
+ * SERVO_PROTOCOL_BROADCAST_ID does that to the whole bus at once, which is
+ * why the family wrappers refuse it and this primitive does not pretend to
+ * make it safe.
+ *
+ * Prefer ax12_factory_reset() or feetech_factory_reset(), which wait for the
+ * reboot, follow the servo to its factory rate and confirm it came back. This
+ * only sends the instruction: the acknowledgement, if it arrives at all,
+ * arrives before the servo reboots and means nothing about the outcome.
+ */
+servo_bus_result_t servo_bus_factory_reset(servo_bus_t *bus, uint8_t id,
+                                           uint8_t *error_out);
+
+/* ---------------------------------------------------------------------------
+ * Bus speed
+ * -------------------------------------------------------------------------*/
+
+/* What the host end is clocked at now. 0 for a bus that is not initialised. */
+uint32_t servo_bus_get_baudrate(const servo_bus_t *bus);
+
+/*
+ * Re-clock the host end of the bus, leaving every servo on it alone.
+ *
+ * Used for two things: following a servo whose own baud rate has just been
+ * changed, and sweeping the rates to find a servo whose setting is unknown.
+ *
+ * Returns SERVO_BUS_ERR_INVALID_ARG when the rate is not reachable within the
+ * UART's tolerance, and in that case the bus is left at the rate it was
+ * already running — a caller probing a list of rates does not have to undo
+ * anything after a refusal.
+ */
+servo_bus_result_t servo_bus_set_baudrate(servo_bus_t *bus, uint32_t baudrate);
 
 /* ---------------------------------------------------------------------------
  * Diagnostics

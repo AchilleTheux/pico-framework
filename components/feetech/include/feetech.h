@@ -39,19 +39,6 @@ extern "C" {
 #define FEETECH_DEFAULT_ID 1u
 #define FEETECH_DEFAULT_BAUDRATE 1000000u
 
-/* Values for FEETECH_REG_BAUD_RATE. Changing it takes effect immediately. */
-#define FEETECH_BAUD_INDEX_1000000 0u
-#define FEETECH_BAUD_INDEX_500000  1u
-#define FEETECH_BAUD_INDEX_250000  2u
-#define FEETECH_BAUD_INDEX_128000  3u
-#define FEETECH_BAUD_INDEX_115200  4u
-#define FEETECH_BAUD_INDEX_76800   5u
-#define FEETECH_BAUD_INDEX_57600   6u
-#define FEETECH_BAUD_INDEX_38400   7u
-
-/* Bus rate for a FEETECH_BAUD_INDEX_* value, or 0 if the index is unknown. */
-uint32_t feetech_baud_index_to_rate(uint8_t index);
-
 /*
  * Prepare a bus for Feetech servos on an already-initialised UART, choosing
  * the byte order for the model family.
@@ -137,6 +124,69 @@ servo_bus_result_t feetech_lock_eeprom(servo_bus_t *bus, uint8_t id);
 
 /* Unlocks, writes the ID, then re-locks using the *new* ID. */
 servo_bus_result_t feetech_set_id(servo_bus_t *bus, uint8_t id, uint8_t new_id);
+
+/*
+ * Move a servo, and the host with it, to `rate`.
+ *
+ * Both ends have to move or the servo is unreachable, so this call does both:
+ * it unlocks the EEPROM, writes FEETECH_REG_BAUD_RATE, re-clocks the bus, and
+ * pings to confirm the servo answers at the new rate before locking the EEPROM
+ * again. `rate` must be one of the eight the table offers; see
+ * feetech_rate_to_baud_index().
+ *
+ * Nothing is written when `rate` is not reachable at both ends. A servo that
+ * fails to answer at the new rate leaves the bus back at the rate it was
+ * running and the EEPROM locked again, so neither a refusal nor a failure
+ * strands a servo or leaves its EEPROM open.
+ *
+ * Servos *other* than `id` are left at the old rate and so are left behind.
+ * SERVO_PROTOCOL_BROADCAST_ID moves the whole bus at once, but nothing
+ * acknowledges a broadcast: that form cannot confirm anything and cannot
+ * re-lock the EEPROM either, so follow it with feetech_scan() and
+ * feetech_lock_eeprom() per servo.
+ *
+ * The servo's acknowledgement is sent as the write takes effect, and whether
+ * it arrives at the old rate, at the new one, or half in each is not something
+ * to rely on. A reply that is missing or corrupted is therefore not treated as
+ * a failure — only a packet that could not be sent at all is; the ping
+ * afterwards is what decides.
+ */
+servo_bus_result_t feetech_set_baudrate(servo_bus_t *bus, uint8_t id, uint32_t rate);
+
+/*
+ * How long a servo is given to come back after a factory reset. No datasheet
+ * figure, so this is a margin: the servo is polled until it answers.
+ */
+#ifndef FEETECH_RESET_TIMEOUT_MS
+#define FEETECH_RESET_TIMEOUT_MS 1000u
+#endif
+
+/*
+ * Put a servo back to its factory settings and follow it there.
+ *
+ * The rescue for a servo whose configuration is unknown or wrong: it restores
+ * the whole EEPROM, so the servo comes back at FEETECH_DEFAULT_ID and
+ * FEETECH_DEFAULT_BAUDRATE. The host follows to the factory rate, polls until
+ * the servo answers on the factory ID, and only then reports success.
+ *
+ * `id` addresses the servo as it is *now*. Nothing is sent when the host cannot
+ * be clocked at the factory rate, and if the servo does not come back the bus
+ * is returned to the rate it was running and the EEPROM is locked again.
+ *
+ * One servo at a time, and SERVO_PROTOCOL_BROADCAST_ID is refused: the reset
+ * takes the ID with it, so resetting several servos on one bus leaves them all
+ * answering as ID 1.
+ *
+ * The EEPROM is unlocked first. Whether a Feetech servo needs that before it
+ * will honour a reset is not documented either way, and unlocking costs one
+ * write to a RAM register, so this does it rather than leaving the question to
+ * whoever is holding the servo.
+ *
+ * This is not the way out of an unknown *baud rate* — the servo has to hear
+ * the instruction for it to do anything, so feetech_scan() across
+ * feetech_baud_rate_table() comes first.
+ */
+servo_bus_result_t feetech_factory_reset(servo_bus_t *bus, uint8_t id);
 
 /* Position mode, or continuous rotation under feetech_set_goal_speed(). */
 servo_bus_result_t feetech_set_mode(servo_bus_t *bus, uint8_t id, uint8_t mode);

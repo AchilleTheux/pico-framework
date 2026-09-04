@@ -127,6 +127,53 @@ static servo_bus_result_t servo_scan_bus(uint8_t *ids, size_t capacity, size_t *
 #endif
 }
 
+/* The rates this family can actually be set to, for the sweep. */
+static const uint32_t *servo_baud_rate_table(size_t *count)
+{
+#if SERVO_TEST_FAMILY_FEETECH
+    return feetech_baud_rate_table(count);
+#else
+    return ax12_baud_rate_table(count);
+#endif
+}
+
+static servo_bus_result_t servo_factory_reset(uint8_t id)
+{
+#if SERVO_TEST_FAMILY_FEETECH
+    return feetech_factory_reset(&bus, id);
+#else
+    return ax12_factory_reset(&bus, id);
+#endif
+}
+
+static uint8_t servo_default_id(void)
+{
+#if SERVO_TEST_FAMILY_FEETECH
+    return FEETECH_DEFAULT_ID;
+#else
+    return AX12_DEFAULT_ID;
+#endif
+}
+
+static uint32_t servo_default_baudrate(void)
+{
+#if SERVO_TEST_FAMILY_FEETECH
+    return FEETECH_DEFAULT_BAUDRATE;
+#else
+    return AX12_DEFAULT_BAUDRATE;
+#endif
+}
+
+/* Moves the servo and the host together; see ax12_set_baudrate(). */
+static servo_bus_result_t servo_set_servo_baudrate(uint8_t id, uint32_t rate)
+{
+#if SERVO_TEST_FAMILY_FEETECH
+    return feetech_set_baudrate(&bus, id, rate);
+#else
+    return ax12_set_baudrate(&bus, id, rate);
+#endif
+}
+
 static uint8_t reg_goal_position(void)
 {
 #if SERVO_TEST_FAMILY_FEETECH
@@ -530,6 +577,248 @@ static int cmd_baud(cli_t *c, void *user_data)
     return CLI_OK;
 }
 
+/*
+ * Find servos whose baud rate is unknown, by trying every rate the family
+ * supports and pinging at each.
+ *
+ * This is the command for a servo that has been used before: a second-hand
+ * servo answers nothing at all until the host happens to be clocked at the
+ * rate somebody left in its EEPROM, and `scan` alone cannot tell that apart
+ * from a wiring fault or no power.
+ */
+static int cmd_discover(cli_t *c, void *user_data)
+{
+    (void)user_data;
+
+    /* An optional id turns a ten-second sweep into one ping per rate, which is
+       what you want when there is one servo on the bench. */
+    uint8_t only_id = 0;
+    bool single = false;
+    if (!cli_args_exhausted(c)) {
+        if (!take_id(c, &only_id)) {
+            return CLI_ERR_ARG;
+        }
+        single = true;
+    }
+
+    size_t rate_count = 0;
+    const uint32_t *rates = servo_baud_rate_table(&rate_count);
+
+    const uint32_t original = servo_bus_get_baudrate(&bus);
+    uint32_t only_rate_found = 0;
+    unsigned rates_with_servos = 0;
+    unsigned servos_found = 0;
+
+    if (single) {
+        cli_printf(c, "looking for id %u at %u rates...\r\n", only_id,
+                   (unsigned)rate_count);
+    } else {
+        cli_printf(c, "sweeping %u rates x %u ids; this takes a few seconds\r\n",
+                   (unsigned)rate_count, (unsigned)SERVO_ID_MAX + 1u);
+    }
+
+    for (size_t i = 0; i < rate_count; i++) {
+        if (servo_bus_set_baudrate(&bus, rates[i]) != SERVO_BUS_OK) {
+            /* Reachable for the servo but not for this host clock. */
+            cli_printf(c, "%9lu  host cannot be clocked here\r\n",
+                       (unsigned long)rates[i]);
+            continue;
+        }
+
+        if (single) {
+            const bool there = servo_bus_ping(&bus, only_id, NULL) == SERVO_BUS_OK;
+            cli_printf(c, "%9lu  %s\r\n", (unsigned long)rates[i],
+                       there ? "answers" : "-");
+            if (there) {
+                rates_with_servos++;
+                only_rate_found = rates[i];
+                servos_found = 1;
+            }
+            continue;
+        }
+
+        uint8_t ids[32];
+        size_t found = 0;
+        if (servo_scan_bus(ids, count_of(ids), &found) != SERVO_BUS_OK || found == 0) {
+            cli_printf(c, "%9lu  -\r\n", (unsigned long)rates[i]);
+            continue;
+        }
+
+        cli_printf(c, "%9lu  %u servo%s:", (unsigned long)rates[i], (unsigned)found,
+                   found == 1 ? "" : "s");
+        for (size_t j = 0; j < found; j++) {
+            cli_printf(c, " %u", ids[j]);
+        }
+        cli_write(c, "\r\n");
+
+        rates_with_servos++;
+        only_rate_found = rates[i];
+        servos_found += (unsigned)found;
+    }
+
+    /*
+     * Where to leave the bus. One rate answered is the ordinary case and the
+     * next command is going to be addressed to those servos, so stay there.
+     * Two rates means a mixed bus and no single right answer, so go back to
+     * where we started rather than picking for the user.
+     */
+    if (rates_with_servos == 1) {
+        (void)servo_bus_set_baudrate(&bus, only_rate_found);
+        cli_printf(c, "%u servo%s at %lu baud; bus left there\r\n", servos_found,
+                   servos_found == 1 ? "" : "s", (unsigned long)only_rate_found);
+    } else {
+        (void)servo_bus_set_baudrate(&bus, original);
+        if (rates_with_servos == 0) {
+            cli_printf(c, "nothing answered at any rate; bus back at %lu baud\r\n",
+                       (unsigned long)original);
+            cli_write(c, "check power and wiring, not the rate\r\n");
+        } else {
+            cli_printf(c, "servos at %u different rates; bus back at %lu baud\r\n",
+                       rates_with_servos, (unsigned long)original);
+        }
+    }
+
+    /* Nothing found is a result, not an error: `scan` reports it the same way,
+       and the point of this command is to distinguish the causes. */
+    show_outcome(rates_with_servos > 0);
+    return CLI_OK;
+}
+
+/*
+ * Change a servo's own baud rate, and follow it with the host.
+ *
+ * Not to be confused with `baud`, which moves only this end.
+ */
+static int cmd_setbaud(cli_t *c, void *user_data)
+{
+    (void)user_data;
+
+    const char *token = cli_next_token(c);
+    uint32_t rate = 0;
+
+    if (token == NULL || !cli_next_u32(c, &rate)) {
+        cli_write(c, "usage: setbaud <id|all> <rate>\r\n");
+        return CLI_ERR_ARG;
+    }
+
+    uint8_t id;
+    if (strcmp(token, "all") == 0) {
+        /* Nothing acknowledges a broadcast, so this cannot be verified — but
+           it is the only way to move a populated bus without orphaning
+           everything but the first servo. */
+        id = SERVO_PROTOCOL_BROADCAST_ID;
+    } else {
+        char *end = NULL;
+        const unsigned long value = strtoul(token, &end, 0);
+        if (end == NULL || *end != '\0' || value > SERVO_ID_MAX) {
+            cli_printf(c, "expected an id from 0 to %u, or 'all'\r\n",
+                       (unsigned)SERVO_ID_MAX);
+            return CLI_ERR_ARG;
+        }
+        id = (uint8_t)value;
+    }
+
+    const servo_bus_result_t result = servo_set_servo_baudrate(id, rate);
+    if (result == SERVO_BUS_ERR_INVALID_ARG) {
+        cli_printf(c, "%lu baud is not a rate both ends can run at\r\n",
+                   (unsigned long)rate);
+        cli_write(c, "the rates this family offers:");
+        size_t rate_count = 0;
+        const uint32_t *rates = servo_baud_rate_table(&rate_count);
+        for (size_t i = 0; i < rate_count; i++) {
+            cli_printf(c, " %lu", (unsigned long)rates[i]);
+        }
+        cli_write(c, "\r\n");
+        return CLI_ERR_RANGE;
+    }
+    if (result != SERVO_BUS_OK) {
+        cli_printf(c, "no answer at %lu baud; bus back at %lu baud\r\n",
+                   (unsigned long)rate, (unsigned long)servo_bus_get_baudrate(&bus));
+        return fail(c, result);
+    }
+
+    const uint32_t now = servo_bus_get_baudrate(&bus);
+    if (id == SERVO_PROTOCOL_BROADCAST_ID) {
+        cli_printf(c, "sent to every servo; bus now at %lu baud (not acknowledged, "
+                      "run scan)\r\n", (unsigned long)now);
+    } else {
+        /* The exact rate, which for a datasheet name is not the number the
+           user typed: "115200" on an AX-12 really is 117647. */
+        cli_printf(c, "servo %u and the bus are now at %lu baud\r\n", id,
+                   (unsigned long)now);
+    }
+    show_outcome(true);
+    return CLI_OK;
+}
+
+/*
+ * Put one servo back to its factory settings.
+ *
+ * Guarded twice, because the reset takes the ID with it and there is no undo:
+ * the word `confirm` has to be typed, and the bus has to have exactly one
+ * servo on it. Two servos reset on one bus both answer as id 1 afterwards,
+ * which is a worse position than whatever the reset was meant to fix.
+ */
+static int cmd_reset(cli_t *c, void *user_data)
+{
+    (void)user_data;
+
+    uint8_t id;
+    if (!take_id(c, &id)) {
+        return CLI_ERR_ARG;
+    }
+
+    const char *confirmation = cli_next_token(c);
+    if (confirmation == NULL || strcmp(confirmation, "confirm") != 0) {
+        cli_printf(c, "this erases servo %u's whole EEPROM: id, baud rate, angle "
+                      "limits, everything\r\n", id);
+        cli_printf(c, "it will come back as id %u at %lu baud\r\n",
+                   servo_default_id(), (unsigned long)servo_default_baudrate());
+        cli_printf(c, "type: reset %u confirm\r\n", id);
+        return CLI_ERR_ARG;
+    }
+
+    /* One servo on the bus, or the reset makes an ID collision. */
+    uint8_t ids[8];
+    size_t found = 0;
+    if (servo_scan_bus(ids, count_of(ids), &found) != SERVO_BUS_OK) {
+        cli_write(c, "could not scan the bus first; not resetting anything\r\n");
+        return CLI_ERR_FAILED;
+    }
+    if (found == 0) {
+        cli_printf(c, "nothing answers on this bus at %lu baud; try discover\r\n",
+                   (unsigned long)servo_bus_get_baudrate(&bus));
+        return CLI_ERR_STATE;
+    }
+    if (found > 1) {
+        cli_printf(c, "%u servos answer; reset needs one on the bus, or they all "
+                      "come back as id %u\r\n", (unsigned)found, servo_default_id());
+        return CLI_ERR_STATE;
+    }
+    if (ids[0] != id) {
+        cli_printf(c, "the one servo here is id %u, not %u\r\n", ids[0], id);
+        return CLI_ERR_STATE;
+    }
+
+    cli_printf(c, "resetting servo %u and waiting for it to come back...\r\n", id);
+
+    const servo_bus_result_t result = servo_factory_reset(id);
+    if (result != SERVO_BUS_OK) {
+        cli_printf(c, "it did not answer as id %u at %lu baud; bus back at %lu "
+                      "baud\r\n", servo_default_id(),
+                   (unsigned long)servo_default_baudrate(),
+                   (unsigned long)servo_bus_get_baudrate(&bus));
+        cli_write(c, "run discover: a reset that half happened leaves it "
+                     "somewhere else\r\n");
+        return fail(c, result);
+    }
+
+    cli_printf(c, "servo is now id %u at %lu baud; bus left there\r\n",
+               servo_default_id(), (unsigned long)servo_bus_get_baudrate(&bus));
+    show_outcome(true);
+    return CLI_OK;
+}
+
 /* Read one register from one servo repeatedly, to see how the link holds up. */
 static int cmd_soak(cli_t *c, void *user_data)
 {
@@ -560,7 +849,7 @@ static int cmd_soak(cli_t *c, void *user_data)
     return CLI_OK;
 }
 
-static cli_command_t commands[CLI_BUILTIN_COMMAND_COUNT + 16u];
+static cli_command_t commands[CLI_BUILTIN_COMMAND_COUNT + 20u];
 
 /* Move several servos at once, so the timing difference is visible: separate
    writes stagger the starts, one sync-write does not. */
@@ -652,6 +941,7 @@ static int cmd_log_dump(cli_t *c, void *user_data)
 
 static const cli_command_t own_commands[] = {
     { "scan",   "find every servo on the bus",        cmd_scan,        NULL },
+    { "discover", "discover [id] - sweep every baud rate", cmd_discover,  NULL },
     { "ping",   "ping <id>",                          cmd_ping,        NULL },
     { "read",   "read <id> <register>",               cmd_read,        NULL },
     { "write",  "write <id> <register> <value>",      cmd_write,       NULL },
@@ -665,6 +955,8 @@ static const cli_command_t own_commands[] = {
     { "stats",  "bus health counters",                cmd_stats,       NULL },
     { "clear",  "reset the counters",                 cmd_stats_reset, NULL },
     { "baud",   "baud <rate> - change bus speed",     cmd_baud,        NULL },
+    { "setbaud", "setbaud <id|all> <rate> - servo and bus", cmd_setbaud,  NULL },
+    { "reset",  "reset <id> confirm - factory settings", cmd_reset,      NULL },
     { "soak",   "soak <id> <n> - hammer the link",    cmd_soak,        NULL },
 };
 
@@ -749,7 +1041,8 @@ int main(void)
     cli_printf(&cli, "\r\nservo_test - %s on pin %d at %lu baud (error %ld/1000)\r\n",
                SERVO_FAMILY_NAME, SERVO_TEST_PIN,
                (unsigned long)timing->actual_baudrate, (long)timing->error_permille);
-    cli_write(&cli, "type help, or scan to find servos\r\n");
+    cli_write(&cli, "type help, scan to find servos, or discover if the rate "
+                    "is unknown\r\n");
     cli_write_prompt(&cli);
 
     while (true) {
