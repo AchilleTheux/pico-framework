@@ -238,8 +238,10 @@ comfortably inside WS2815's 150–450 ns and 750–1050 ns windows, where the
 former is right on WS2812B's lower edge. WS2815 also wants a longer latch
 gap, ≥280 µs against WS2812B's 50 µs; `WS2812_RESET_US` is 300, so it is
 covered, but that is the constant to raise if the far end of a strip ever lags
-a frame. External strips,
-RGBW pixels, long-strip signal integrity, and the DMA path remain unverified on
-hardware. Gamma and dithering are verified on the host only: whether a fade
-*looks* smooth is not something a test can settle, and it wants a real strip
-and an eye.
+a frame. All 300 pixels lit, so signal integrity holds over that length behind
+a level shifter.
+
+Gamma and dithering were finally judged by the only instrument that can settle
+them, on 2026-09-04 and on the same strip: a ramp from `bri 10` to `bri 250`
+is smooth, with no visible step backwards, and the low end still shows
+gradations rather than a staircase. RGBW pixels remain unverified on hardware.

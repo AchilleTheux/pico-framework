@@ -46,7 +46,7 @@ Updating a board over a serial link, with no USB involved, is built from these:
 on one console. [`serial_update_test`](apps/tests/serial_update_test/) is the
 worked example.
 
-Pure logic is covered by 26 sanitizer-enabled host executables. Hardware-facing
+Pure logic is covered by 27 sanitizer-enabled host executables. Hardware-facing
 groups have manual applications under `apps/tests/`; a successful cross-build
 is recorded separately from a physical result. The RP2040-Zero has validated
 USB stdio and CLI, its onboard WS2812, bare-pin PIO UART loopback, persistent
@@ -104,12 +104,15 @@ second transfer over a hardware UART on the RP2040-Zero.
 [`home_led`](apps/home_led/) is the first application here that is a product
 rather than a bench: an LED strip published to Home Assistant over MQTT, built
 from six components at once. It also carries the framework's testing rule
-further than before — its light model, its effects and its Home Assistant
-schema call no SDK function, so all three compile into the host tests and only
-its `main.c` needs hardware to judge. 75 tests came out of that, written
-before any of it had been seen on a strip; when one was finally driven, the
-single thing that turned out to be wrong was a strip property no test could
-have known — its channel order.
+further than before — its light model, its LED ranges, its effects and its
+Home Assistant schema call no SDK function, so they compile into the host tests and only its
+`main.c` needs hardware to judge. 88 tests came out of that, written before any
+of it had been seen on a strip. It is now validated end to end: 300 pixels,
+every effect, and a real Home Assistant instance discovering the light and
+driving it. What hardware then found is precisely what a host test could not
+have — the strip's channel order, brightness ramps that were not reliable on a
+real fade, and three entities' state publications that could starve one another
+in lwIP's output ring.
 
 The serial updater is implemented as an application service: it stages and
 verifies an image, then an opt-in RAM-resident routine installs it in place.
@@ -403,9 +406,6 @@ driven by actual project needs rather than another architecture phase:
   fix (tracked as [pico-sdk#3078](https://github.com/raspberrypi/pico-sdk/issues/3078)
   / [#3148](https://github.com/raspberrypi/pico-sdk/issues/3148));
 - add TCP/UDP, PWM, and persistent flash logging when an application needs them;
-- validate [`home_led`](apps/home_led/) on a strip and against a Home
-  Assistant instance; it is complete and host-tested, but nothing about how it
-  *looks* has been seen yet;
 - exercise the framework in a complete robot application rather than only the
   minimal image and component benches.
 

@@ -10,16 +10,15 @@ make BOARD=pico2_w APP=home_led flash
 
 ## Status
 
-**Not yet validated on hardware.** Everything below is what the firmware is
-built to do; what has actually been demonstrated is:
+**Validated on hardware, end to end.** What has been demonstrated:
 
 | | |
 |---|---|
 | Host tests | 88, across the light model (27), LED ranges (7), effects (22) and the Home Assistant schema (32), under ASan and UBSan |
 | Cross-builds | `pico2_w`, `pico_w`, `pico2` (no radio), both profiles, warnings as errors |
-| On a Pico 2 W | everything except the strip — see below |
-| On a strip | the wire order and the primaries; the rest still unseen |
-| Against Home Assistant | nothing — no instance was available; the MQTT exchange was driven by hand instead |
+| On a Pico 2 W | everything that does not need LEDs — see below |
+| On a strip | the wire order, the primaries, the LED count, the fades and every effect |
+| Against Home Assistant | discovered from its own document, and driven from the app |
 
 Validated on a Pico 2 W against `broker.hivemq.com`, 2026-09-03. Every part of
 this that does not need LEDs:
@@ -58,11 +57,21 @@ primaries came out swapped, which is what `APP_LED_ORDER` in the profiles is
 now set for; see [`ws2812`'s README](../../components/ws2812/README.md) for
 why two channels and not three.
 
-What is still unproven is everything else an eye has to judge — whether the
-fades look smooth, whether the dithering does what it is meant to at low
-brightness, whether the effects are pleasant, whether all 300 pixels light —
-and Home Assistant's own handling of the discovery document. Record those here
-as they are seen; see "What to check first" at the end.
+The rest of that strip, and Home Assistant itself, on 2026-09-04:
+
+* All 300 pixels light, `test` puts its pattern on the strip from the near end,
+  and `status` reports the count the strip actually has.
+* `bri 10` then `bri 250` ramps smoothly, with no visible step backwards, and
+  the low end still shows gradations rather than a staircase — which is the
+  dithering doing what it is there for.
+* Every effect renders, at a middling brightness.
+* Home Assistant reads the discovery document and shows the light, with all
+  five effects in its dropdown.
+* Driving it from the app works: on/off, the brightness slider, a colour, the
+  colour-temperature slider, and each effect.
+
+So the whole path the application exists for — Home Assistant to broker to
+board to pixels — has now been seen working, not only reasoned about.
 
 ## Required hardware
 
@@ -264,12 +273,10 @@ on the first session and every later one with no separate bookkeeping.
 A last-will on `<prefix>/light/<id>/status` is how Home Assistant learns about
 a power cut: the broker publishes "offline" on the device's behalf.
 
-## What to check first, when a strip is available
+## Bringing up a strip
 
-In this order, because each one rules out the causes of the next:
-
-The console and network half is already done (see Status); what remains needs
-the LEDs.
+This is the order the bench was validated in, and the order worth repeating on
+new hardware, because each step rules out the causes of the next:
 
 1. `test` — the pattern appears, red at the near end, and all of the strip
    lights. If the colours are swapped, that is the wire order: run `order` and
@@ -282,8 +289,8 @@ the LEDs.
    That low end is what the dithering is for.
 4. Each effect in turn, at a middling brightness.
 5. Check the light appears in Home Assistant and that its dropdown offers the
-   five effects. Everything up to the broker is already confirmed; what has
-   never been seen is Home Assistant's own reading of the discovery document.
+   five effects. If the rest works but nothing shows up there, suspect
+   `haprefix` rather than the firmware.
 6. Drive it from Home Assistant: on/off, the brightness slider, a colour, the
    colour-temperature slider, each effect.
 
