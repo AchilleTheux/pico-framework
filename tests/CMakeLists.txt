@@ -349,6 +349,26 @@ target_include_directories(mqtt_policy_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/mqtt/include"
 )
 
+host_test(tcp_stream_test
+    SOURCES
+        tests/components/tcp_stream_test.c
+        components/tcp/tcp_stream.c
+        components/ring_buffer/ring_buffer.c
+)
+target_include_directories(tcp_stream_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/tcp/include"
+    "${PICO_FRAMEWORK_ROOT}/components/ring_buffer/include"
+)
+
+host_test(udp_policy_test
+    SOURCES
+        tests/components/udp_policy_test.c
+        components/udp/udp_policy.c
+)
+target_include_directories(udp_policy_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/udp/include"
+)
+
 host_test(bt_stream_test
     SOURCES
         tests/components/bt_stream_test.c

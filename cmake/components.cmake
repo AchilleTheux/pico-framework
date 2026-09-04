@@ -21,6 +21,8 @@ set(PICO_FRAMEWORK_COMPONENTS
     vl53l0x
     wifi
     mqtt
+    tcp
+    udp
     json
     bluetooth
     persistent_config

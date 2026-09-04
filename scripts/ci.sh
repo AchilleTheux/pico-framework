@@ -77,6 +77,14 @@ MATRIX=(
     "pico2_w:tests/mqtt_test:default"
     # Same for the component layered on top of the radio.
     "pico2:tests/mqtt_test:default"
+    "pico2_w:tests/tcp_test:default"
+    # The raw-API components on the RP2040 radio board as well, since lwIP's
+    # memory pools are the tighter fit there.
+    "pico_w:tests/tcp_test:default"
+    "pico2:tests/tcp_test:default"
+    "pico2_w:tests/udp_test:default"
+    "pico_w:tests/udp_test:default"
+    "pico2:tests/udp_test:default"
     # A complete application rather than a bench: six components in one image.
     "pico2_w:home_led:default"
     "pico2_w:home_led:bench"
