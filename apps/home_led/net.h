@@ -29,11 +29,12 @@ void net_start_if_configured(app_t *app);
 void net_poll(app_t *app);
 
 /*
- * Publish the light and both range endpoint states, retained. False if there
- * is no session or the output ring cannot accept the complete state set; the
- * main loop then retries without losing the generation that needs publishing.
+ * Schedule the light and both range endpoint states for retained publication.
+ * net_poll() queues them one at a time so one entity cannot starve behind
+ * earlier messages when the MQTT output ring is nearly full. Does nothing
+ * without a session; repeated calls while a set is pending are harmless.
  */
-bool net_publish_state(app_t *app);
+void net_publish_state(app_t *app);
 
 /*
  * Everything a new broker session has to re-establish: three subscriptions,

@@ -55,52 +55,69 @@ static mqtt_config_t mqtt_config_of(app_t *app)
  * Publishing
  * -------------------------------------------------------------------------*/
 
-bool net_publish_state(app_t *app)
+void net_publish_state(app_t *app)
 {
-    static char payload[HA_STATE_BUFFER_SIZE];
-    static char number[HA_NUMBER_STATE_BUFFER_SIZE];
-
-    if (!mqtt_is_connected(&app->mqtt)) {
-        return false;
+    if (!mqtt_is_connected(&app->mqtt) || app->state_publish_pending) {
+        return;
     }
 
-    const size_t length = ha_build_state(&app->ha, &app->light, payload, sizeof(payload));
-    if (length == 0) {
-        return false;
+    /* Capture what this cycle promises to publish. If either model changes
+       while its three messages are draining, completing with these older
+       generations leaves the new change dirty and schedules another cycle. */
+    app->state_publish_generation = app->light.generation;
+    app->state_publish_range_generation = app->range.generation;
+    app->state_publish_step = 0u;
+    app->state_publish_pending = true;
+}
+
+static void poll_state_publish(app_t *app)
+{
+    static char light_payload[HA_STATE_BUFFER_SIZE];
+    static char number_payload[HA_NUMBER_STATE_BUFFER_SIZE];
+
+    if (!app->state_publish_pending || !mqtt_is_connected(&app->mqtt)) {
+        return;
     }
 
-    /* Retained, so Home Assistant knows what the light is doing as soon as it
-       subscribes rather than having to wait for the next change. */
-    if (mqtt_publish_message(&app->mqtt, app->ha.topic_state, payload,
-                             (uint16_t)length, 1, true) != MQTT_OK) {
-        return false;
+    const char *topic;
+    const char *payload;
+    size_t length;
+
+    switch (app->state_publish_step) {
+        case 0u:
+            topic = app->ha.topic_state;
+            length = ha_build_state(&app->ha, &app->light,
+                                    light_payload, sizeof(light_payload));
+            payload = light_payload;
+            break;
+        case 1u:
+            topic = app->ha.topic_range_first_state;
+            length = ha_build_range_state(&app->range, HA_RANGE_FIRST,
+                                          number_payload, sizeof(number_payload));
+            payload = number_payload;
+            break;
+        case 2u:
+            topic = app->ha.topic_range_last_state;
+            length = ha_build_range_state(&app->range, HA_RANGE_LAST,
+                                          number_payload, sizeof(number_payload));
+            payload = number_payload;
+            break;
+        default:
+            app->published_generation = app->state_publish_generation;
+            app->published_range_generation = app->state_publish_range_generation;
+            app->last_publish_ms = app_now_ms();
+            app->state_publish_pending = false;
+            return;
     }
 
-    size_t number_length = ha_build_range_state(&app->range, HA_RANGE_FIRST,
-                                                number, sizeof(number));
-    if (number_length != 0u) {
-        if (mqtt_publish_message(&app->mqtt, app->ha.topic_range_first_state,
-                                 number, (uint16_t)number_length, 1, true) != MQTT_OK) {
-            return false;
-        }
-    } else {
-        return false;
+    /* Retained, so all three entities recover their values as soon as Home
+       Assistant subscribes. Advance only after lwIP accepts this message;
+       otherwise retry this same entity after the output ring drains. */
+    if (length != 0u &&
+        mqtt_publish_message(&app->mqtt, topic, payload,
+                             (uint16_t)length, 1, true) == MQTT_OK) {
+        app->state_publish_step++;
     }
-    number_length = ha_build_range_state(&app->range, HA_RANGE_LAST,
-                                         number, sizeof(number));
-    if (number_length != 0u) {
-        if (mqtt_publish_message(&app->mqtt, app->ha.topic_range_last_state,
-                                 number, (uint16_t)number_length, 1, true) != MQTT_OK) {
-            return false;
-        }
-    } else {
-        return false;
-    }
-
-    app->published_generation = app->light.generation;
-    app->published_range_generation = app->range.generation;
-    app->last_publish_ms = app_now_ms();
-    return true;
 }
 
 typedef enum {
@@ -143,6 +160,7 @@ void net_announce(app_t *app)
        previous packet has drained rather than silently losing an entity. */
     app->announce_step = 0u;
     app->announce_pending = true;
+    app->state_publish_pending = false;
 }
 
 static void poll_announcement(app_t *app)
@@ -167,8 +185,14 @@ static void poll_announcement(app_t *app)
                                         HA_AVAILABLE, (uint16_t)strlen(HA_AVAILABLE),
                                         1, true) == MQTT_OK;
             break;
+        case 4u:
+            net_publish_state(app);
+            if (app->state_publish_pending) {
+                app->announce_step++;
+            }
+            return;
         default:
-            if (net_publish_state(app)) {
+            if (!app->state_publish_pending) {
                 app->announce_pending = false;
                 cli_printf(&app->cli, "\r\n[ha] announced as %s (session %lu)\r\n",
                            app->ha.device_id,
@@ -289,6 +313,7 @@ void net_poll(app_t *app)
     wifi_poll(&app->wifi);
     mqtt_poll(&app->mqtt);
     poll_announcement(app);
+    poll_state_publish(app);
 
     const wifi_state_t wifi_now = wifi_state(&app->wifi);
     if (wifi_now != reported_wifi) {

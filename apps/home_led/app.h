@@ -115,6 +115,10 @@ typedef struct {
     bool ha_ready;
     bool announce_pending;
     uint8_t announce_step;
+    bool state_publish_pending;
+    uint8_t state_publish_step;
+    uint32_t state_publish_generation;
+    uint32_t state_publish_range_generation;
 
     /* Flash. */
     persistent_config_t config;

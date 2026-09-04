@@ -121,7 +121,7 @@ int main(void)
         if ((app.light.generation != app.published_generation ||
              app.range.generation != app.published_range_generation) &&
             now_ms - app.last_publish_ms >= PUBLISH_INTERVAL_MS) {
-            (void)net_publish_state(&app);
+            net_publish_state(&app);
         }
 
         if ((app.light.generation != app.saved_generation ||
