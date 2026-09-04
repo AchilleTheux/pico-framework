@@ -12,12 +12,13 @@ of reusable components. See [DESIGN_DOC.md](DESIGN_DOC.md) for the full design.
 All 15 initial implementation priorities in DESIGN_DOC.md section 24 are
 complete: the repository and build model, reusable components, host and target
 tests, real application profiles, WiFi support, and the extension guide. The
-framework now has 24 registered components; their individual READMEs distinguish
+framework now has 25 registered components; their individual READMEs distinguish
 host coverage, build coverage, and physical hardware validation.
 
 | Component | What it provides |
 |-----------|------------------|
 | [`ws2812`](components/ws2812/) | WS2812 / WS2815 / SK6812 LED strips, any channel order |
+| [`pwm`](components/pwm/) | one PWM output, by frequency and duty or pulse width |
 | [`cli`](components/cli/) | line-oriented command interpreter, transport-agnostic |
 | [`half_duplex_uart`](components/half_duplex_uart/) | 8N1 over one shared wire, for smart-servo buses |
 | [`servo_bus`](components/servo_bus/) | Dynamixel Protocol 1.0 packets, transactions, retries |
@@ -48,7 +49,7 @@ Updating a board over a serial link, with no USB involved, is built from these:
 on one console. [`serial_update_test`](apps/tests/serial_update_test/) is the
 worked example.
 
-Pure logic is covered by 29 sanitizer-enabled host executables. Hardware-facing
+Pure logic is covered by 30 sanitizer-enabled host executables. Hardware-facing
 groups have manual applications under `apps/tests/`; a successful cross-build
 is recorded separately from a physical result. The RP2040-Zero has validated
 USB stdio and CLI, its onboard WS2812, bare-pin PIO UART loopback, persistent
@@ -129,7 +130,14 @@ neither has opened a connection or sent a datagram. That gap is recorded in
 their READMEs rather than smoothed over, on the same rule the rest of this
 section follows — a successful cross-build is not a hardware result.
 
-Still to come as components: PWM and a flash-backed logging sink.
+[`pwm`](components/pwm/) joins them on the same footing — built and
+host-tested, not yet measured on a pin. It is deliberately thin, since the SDK's
+own PWM API is already clean: what it adds is the arithmetic the SDK leaves to
+the caller (a divider and a wrap for a named frequency, a level for a pulse
+width in microseconds) and one piece of care about the two channels of a slice
+sharing a wrap, which it refuses to overwrite silently.
+
+Still to come as components: a flash-backed logging sink.
 
 ## Getting started
 
@@ -418,7 +426,10 @@ driven by actual project needs rather than another architecture phase:
   against a peer on a real network, which is the only thing that can settle
   lwIP's window behaviour, the receive back-pressure path, and whether an access
   point forwards a broadcast at all;
-- add PWM and persistent flash logging when an application needs them;
+- run [`pwm_test`](apps/tests/pwm_test/) on a pin — its `onboard_led` profile
+  needs no wiring, and a scope would settle the frequencies the host tests can
+  only compute;
+- add persistent flash logging when an application needs it;
 - exercise the framework in a complete robot application rather than only the
   minimal image and component benches.
 

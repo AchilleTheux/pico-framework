@@ -30,6 +30,7 @@ set(PICO_FRAMEWORK_COMPONENTS
     flash_storage
     firmware_update
     ws2812
+    pwm
     cli
     half_duplex_uart
     servo_bus

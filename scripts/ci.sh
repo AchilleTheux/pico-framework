@@ -91,6 +91,15 @@ MATRIX=(
     "pico_w:home_led:default"
     # And on a board with no radio, where it must still build.
     "pico2:home_led:default"
+    "pico:tests/pwm_test:default"
+    "pico2:tests/pwm_test:default"
+    # The onboard-LED profile, which is the one anyone can run with no wiring.
+    "pico:tests/pwm_test:onboard_led"
+    # A servo frame and a supersonic motor frequency: the two ends of the
+    # divider range the timing code has to reach.
+    "pico2:tests/pwm_test:servo"
+    "pico2:tests/pwm_test:motor"
+    "rp2040_zero:tests/pwm_test:default"
     "pico:tests/config_test:default"
     "pico2:tests/config_test:default"
     "pico:tests/i2c_test:default"

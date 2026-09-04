@@ -349,6 +349,15 @@ target_include_directories(mqtt_policy_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/mqtt/include"
 )
 
+host_test(pwm_timing_test
+    SOURCES
+        tests/components/pwm_timing_test.c
+        components/pwm/pwm_timing.c
+)
+target_include_directories(pwm_timing_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/pwm/include"
+)
+
 host_test(tcp_stream_test
     SOURCES
         tests/components/tcp_stream_test.c
