@@ -58,6 +58,23 @@ component was validated with, paired with
 `BOARD=rp2350_can APP=tests/mcp2515_test PROFILE=default` on the same bus, so
 the PIO backend and an MCP2515 acknowledge each other.
 
+## Pico 2 W profiles (RP2350)
+
+```bash
+make BOARD=pico2_w APP=tests/can_test PROFILE=pico2_w flash
+make BOARD=pico2_w APP=tests/can_test PROFILE=pio2   flash
+```
+
+Transceiver RXD on GPIO 26, TXD on GPIO 27 — clear of the four pins the CYW43
+radio takes (23, 24, 25, 29). `pico2_w` uses PIO0; `pio2` is the same wiring
+on PIO block **2**, which exists only on RP2350 and which no other profile
+reaches.
+
+Running the RP2350 as well as the RP2040 is not redundancy. can2040 selects a
+different bit stuffer and unstuffer per chip, writes an rp2350-only PIO
+register, and gains a third PIO block there — so an RP2040 result does not
+carry over. See [`can`'s README](../../../components/can/README.md).
+
 ## Acceptance filter profile
 
 ```bash
@@ -115,7 +132,9 @@ The default wiring's GPIO 5 is not configured in this profile.
 
 ## Validated result
 
-Run on 2026-09-04 with `PROFILE=rp2040_zero` against a Waveshare RP2350-CAN
-running `tests/mcp2515_test`, at 500 kbit/s and again at 1 Mbit/s, plus the
-`filter` profile. See [`can`'s README](../../../components/can/README.md) for
-what each run established.
+Run on 2026-09-04 against a Waveshare RP2350-CAN running `tests/mcp2515_test`
+as the peer: `PROFILE=rp2040_zero` on an RP2040-Zero and `PROFILE=pico2_w` on
+a Pico 2 W, each at 500 kbit/s and 1 Mbit/s, plus `filter` on the RP2040 and
+`pio2` on the RP2350. See
+[`can`'s README](../../../components/can/README.md) for what each run
+established, and for the two RP2350B-only paths still uncovered.

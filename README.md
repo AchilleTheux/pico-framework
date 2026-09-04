@@ -74,13 +74,17 @@ default output ring buffer, received intact by an independent subscriber, and
 re-subscribed automatically after a forced session drop.
 
 Both CAN controllers are now hardware-proven, and proven against each other:
-an RP2040-Zero running [`can`](components/can/) on PIO0 through an SN65HVD230-class
-transceiver and a Waveshare RP2350-CAN running [`mcp2515`](components/mcp2515/)
-on its onboard XL2515, on one bus, acknowledging each other's standard,
-extended, and RTR frames at 500 kbit/s and again at 1 Mbit/s, with a 60-second
-soak showing no drift in any counter. `mcp2515`'s loopback mode was validated
-standalone first, which is what isolates the SPI transport and bit timing from
-the bus. Acceptance filters were then exercised on each — and that is the step
+[`can`](components/can/) driving a transceiver from a PIO block and a Waveshare
+RP2350-CAN running [`mcp2515`](components/mcp2515/) on its onboard XL2515, on
+one bus, acknowledging each other's standard, extended, and RTR frames at
+500 kbit/s and again at 1 Mbit/s, with 60-second soaks showing no drift in any
+counter. The PIO backend was run on **both** MCU families — an RP2040-Zero and
+a Pico 2 W — because can2040 is not the same code on the two: it picks a
+different bit stuffer and unstuffer per chip, writes an RP2350-only PIO
+register, and gains a third PIO block there, which `can`'s own `pio2` profile
+now exercises. `mcp2515`'s loopback mode was validated standalone first, which
+is what isolates the SPI transport and bit timing from the bus. Acceptance
+filters were then exercised on each — and that is the step
 that earned its keep: the MCP2515's hardware filter had a real bug that
 loopback, both bitrates, and every unfiltered run passed straight through,
 because none of them installs a filter. A mask was being written in the

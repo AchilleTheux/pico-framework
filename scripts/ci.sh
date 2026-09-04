@@ -42,6 +42,9 @@ MATRIX=(
     "pico2:tests/can_test:default"
     "rp2040_zero:tests/can_test:default"
     "rp2040_zero:tests/can_test:rp2040_zero"
+    "pico2_w:tests/can_test:pico2_w"
+    # RP2350's third PIO block: code no RP2040 build compiles.
+    "pico2_w:tests/can_test:pio2"
     "pico2:tests/can_test:monitor"
     # The two acceptance-filter builds, so the filter code stays compiled.
     "rp2040_zero:tests/can_test:filter"

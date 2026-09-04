@@ -115,13 +115,23 @@ families.
 
 ## Hardware validation
 
-Validated on 2026-09-04 on a Waveshare RP2040-Zero (`BOARD=rp2040_zero`,
-PIO0, transceiver RXD on GPIO 29 and TXD on GPIO 28 — the `rp2040_zero`
-profile), against a Waveshare RP2350-CAN running
-[`mcp2515`](../mcp2515/) on its onboard XL2515 as the second node. Every
-result is therefore also a cross-controller interoperability result: this PIO
-implementation and a hardware CAN controller acknowledged each other's frames
-on one bus.
+Validated on 2026-09-04 on **both** MCU families, each time against a
+Waveshare RP2350-CAN running [`mcp2515`](../mcp2515/) on its onboard XL2515 as
+the second node. Every result is therefore also a cross-controller
+interoperability result: this PIO implementation and a hardware CAN controller
+acknowledged each other's frames on one bus.
+
+Both chips were run because **can2040 is not the same code on the two of
+them**, and an RP2040 pass says nothing about RP2350. Its bit stuffer and bit
+unstuffer each dispatch to a separate rp2040 or rp2350 implementation, chosen
+by the `PICO_RP2350` the SDK defines for us; it writes the rp2350-only PIO
+`gpiobase` register; and RP2350 has a third PIO block, whose reset bit,
+`pio2_hw` selection, and `case 2` IRQ handler here are code an RP2040 build
+does not even compile.
+
+### RP2040 — Waveshare RP2040-Zero, `rp2040_zero` profile
+
+PIO0, transceiver RXD on GPIO 29 and TXD on GPIO 28.
 
 * 500 kbit/s, both nodes active: standard, extended, and RTR frames delivered
   in both directions with identifiers, DLCs, and payloads intact — 66 frames
@@ -136,8 +146,29 @@ on one bus.
   frames reached the application, `filtered` accounting for the other two
   thirds of the peer's traffic, and the node's own transmissions unaffected.
 
-Two behaviours worth knowing before reading a log, both observed during that
-run and both reported correctly by these diagnostics.
+### RP2350 — Pico 2 W, `pico2_w` and `pio2` profiles
+
+Transceiver RXD on GPIO 26 and TXD on GPIO 27, at a 150 MHz `clk_sys` rather
+than the RP2040's 125 MHz.
+
+* 500 kbit/s on PIO0: 65 frames each way over 60 s, thirteen consecutive
+  counter samples every one of which advanced by exactly 5, `attempts == tx`
+  throughout, and `parse`, `queue_drop`, and `controller_overflow` all zero for
+  the whole run — no drift, no refusals, no repeated payloads.
+* **1 Mbit/s** on PIO0: all three frame types both directions, still no
+  overflows and no drops.
+* 500 kbit/s on **PIO block 2**, the block that exists only on this chip and
+  that no other profile reaches: `can_bus_init()` claimed it without error and
+  the run was as clean as PIO0's.
+
+Two RP2350-specific paths remain uncovered, and both are unreachable on an
+RP2350**A**: a non-zero PIO `gpiobase` and this component's
+`#if NUM_BANK0_GPIOS > 32` pin-window check both need a pin above 31, so they
+want an RP2350**B** board with 48 GPIOs. The `gpiobase` register write itself
+does execute here, with the value 0.
+
+Two behaviours worth knowing before reading a log, both observed during these
+runs and both reported correctly by these diagnostics.
 
 A node left **alone** on the bus does not merely fail to transmit: can2040
 retries continuously, and each unacknowledged attempt is followed by an error
