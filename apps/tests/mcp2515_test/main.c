@@ -56,10 +56,48 @@
 #define MCP2515_TEST_MODE MCP2515_MODE_NORMAL
 #endif
 
+/*
+ * Hardware acceptance filter to install; see MCP2515_TEST_FILTER in
+ * CMakeLists.txt. Same two settings as can_test's software equivalent, and
+ * the same reason for having them: an unfiltered receive buffer and a
+ * correctly filtered one are indistinguishable until traffic that should be
+ * rejected arrives. Here that also proves the RXF0..RXF5 / RXM0..RXM1 bank
+ * split, since either receive buffer left open would deliver the rest of
+ * the bus.
+ */
+#define MCP2515_TEST_FILTER_NONE 0
+#define MCP2515_TEST_FILTER_ID_123 1
+#define MCP2515_TEST_FILTER_EXT_ONLY 2
+
+#ifndef MCP2515_TEST_FILTER
+#define MCP2515_TEST_FILTER MCP2515_TEST_FILTER_NONE
+#endif
+
 #define SEND_INTERVAL_MS 1000u
 #define STATS_INTERVAL_MS 5000u
 
 static mcp2515_bus_t bus;
+static can_filter_t filters[1];
+
+/* Fills `filters`, names the choice, and returns how many were installed. */
+static size_t build_filters(const char **description)
+{
+#if MCP2515_TEST_FILTER == MCP2515_TEST_FILTER_ID_123
+    filters[0].id = can_id_pack(0x123, false, false);
+    filters[0].mask = CAN_STANDARD_ID_MAX | CAN_FLAG_EXTENDED;
+    *description = "standard id 0x123 only";
+    return 1;
+#elif MCP2515_TEST_FILTER == MCP2515_TEST_FILTER_EXT_ONLY
+    filters[0].id = CAN_FLAG_EXTENDED;
+    filters[0].mask = CAN_FLAG_EXTENDED;
+    *description = "extended frames only";
+    return 1;
+#else
+    (void)filters;
+    *description = "none: every valid frame accepted";
+    return 0;
+#endif
+}
 
 static spi_inst_t *selected_spi(void)
 {
@@ -146,6 +184,9 @@ int main(void)
     gpio_set_function(MCP2515_TEST_MOSI_PIN, GPIO_FUNC_SPI);
     gpio_set_function(MCP2515_TEST_MISO_PIN, GPIO_FUNC_SPI);
 
+    const char *filter_description = NULL;
+    const size_t filter_count = build_filters(&filter_description);
+
     const mcp2515_bus_config_t config = {
         .spi = spi,
         .cs_pin = MCP2515_TEST_CS_PIN,
@@ -153,6 +194,8 @@ int main(void)
         .oscillator_hz = MCP2515_TEST_OSCILLATOR_HZ,
         .bitrate = MCP2515_TEST_BITRATE,
         .mode = MCP2515_TEST_MODE,
+        .filters = filter_count != 0 ? filters : NULL,
+        .filter_count = filter_count,
     };
 
     const mcp2515_result_t init = mcp2515_bus_init(&bus, &config);
@@ -167,6 +210,7 @@ int main(void)
            PICO_BOARD, MCP2515_TEST_SPI_INSTANCE, MCP2515_TEST_CS_PIN, MCP2515_TEST_INT_PIN,
            (unsigned long)MCP2515_TEST_OSCILLATOR_HZ, (unsigned long)MCP2515_TEST_BITRATE,
            (int)MCP2515_TEST_MODE);
+    printf("filter: %s\n", filter_description);
     if (MCP2515_TEST_MODE == MCP2515_MODE_LOOPBACK) {
         puts("loopback self-test: transmissions loop back internally, nothing goes on the wire");
     } else if (MCP2515_TEST_MODE == MCP2515_MODE_LISTEN_ONLY) {

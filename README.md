@@ -71,9 +71,29 @@ board reported looking correct; see [`mqtt`'s README](components/mqtt/README.md)
 A second run on that board, against `broker.hivemq.com`, covers `mqtt`'s
 `on_connect` and a 464-byte publish built with `json` — past lwIP's 256-byte
 default output ring buffer, received intact by an independent subscriber, and
-re-subscribed automatically after a forced session drop. CAN on either
-controller, real I2C devices, and smart servos still await the hardware listed
-by their test applications. The serial firmware installer has
+re-subscribed automatically after a forced session drop.
+
+Both CAN controllers are now hardware-proven, and proven against each other:
+an RP2040-Zero running [`can`](components/can/) on PIO0 through an SN65HVD230-class
+transceiver and a Waveshare RP2350-CAN running [`mcp2515`](components/mcp2515/)
+on its onboard XL2515, on one bus, acknowledging each other's standard,
+extended, and RTR frames at 500 kbit/s and again at 1 Mbit/s, with a 60-second
+soak showing no drift in any counter. `mcp2515`'s loopback mode was validated
+standalone first, which is what isolates the SPI transport and bit timing from
+the bus. Acceptance filters were then exercised on each — and that is the step
+that earned its keep: the MCP2515's hardware filter had a real bug that
+loopback, both bitrates, and every unfiltered run passed straight through,
+because none of them installs a filter. A mask was being written in the
+extended register layout regardless of its bank's frame type, which leaves the
+identifier entirely unmasked and turns the spilled bits into a filter on the
+first two *data* bytes; the node received only the one frame it had been told
+to reject. It is fixed, and the host tests now pin where a mask's bits land in
+each layout — the previous tests checked only that the planned mask equalled
+the caller's, never how it was written. See
+[`mcp2515`'s README](components/mcp2515/README.md).
+
+Real I2C devices and smart servos still await the hardware listed by their test
+applications. The serial firmware installer has
 completed an end-to-end stage, verify, in-place install, automatic reboot, and
 second transfer over a hardware UART on the RP2040-Zero.
 

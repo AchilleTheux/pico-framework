@@ -112,3 +112,43 @@ must comply with that license.
 handling, filters, FIFO order, wraparound, full-queue drops, and invalid input on
 the host. `apps/tests/can_test` is the manual transceiver/bus test for both MCU
 families.
+
+## Hardware validation
+
+Validated on 2026-09-04 on a Waveshare RP2040-Zero (`BOARD=rp2040_zero`,
+PIO0, transceiver RXD on GPIO 29 and TXD on GPIO 28 — the `rp2040_zero`
+profile), against a Waveshare RP2350-CAN running
+[`mcp2515`](../mcp2515/) on its onboard XL2515 as the second node. Every
+result is therefore also a cross-controller interoperability result: this PIO
+implementation and a hardware CAN controller acknowledged each other's frames
+on one bus.
+
+* 500 kbit/s, both nodes active: standard, extended, and RTR frames delivered
+  in both directions with identifiers, DLCs, and payloads intact — 66 frames
+  each way over 60 s, `received` and `transmitted` advancing 5 per 5 s with no
+  drift, and `queue_drop` and `controller_overflow` flat at zero.
+* The same at **1 Mbit/s**, `CAN_MAX_BITRATE`, where the IRQ-latency margin
+  the contract above describes is at its tightest: still no controller
+  overflows and no parse errors, from a `copy_to_ram` build.
+* Started against a live peer, a healthy bus reads exactly as this
+  component's diagnostics promise: `attempts == tx` and `parse == 0`.
+* `filter` profile, one software filter for standard id `0x123`: only those
+  frames reached the application, `filtered` accounting for the other two
+  thirds of the peer's traffic, and the node's own transmissions unaffected.
+
+Two behaviours worth knowing before reading a log, both observed during that
+run and both reported correctly by these diagnostics.
+
+A node left **alone** on the bus does not merely fail to transmit: can2040
+retries continuously, and each unacknowledged attempt is followed by an error
+frame it counts as a parse error, so `attempts` and `parse` climb together at
+tens of thousands per second. Once the peer came up, both counters froze at
+their startup totals and never moved again. A large but *static* `parse` count
+is a node that spent time alone; a growing one is a bus fault.
+
+And the receive queue really is only as fast as the loop draining it. The test
+application prints every frame it receives, so leaving its USB console unread
+eventually blocks that loop: `queue_dropped` rose to 106 and then froze, and
+the peer — unacknowledged meanwhile — retried a single frame whose received
+copies all printed at once when the console drained. Nothing was silently
+lost; the counter said exactly how much was, which is what it is for.

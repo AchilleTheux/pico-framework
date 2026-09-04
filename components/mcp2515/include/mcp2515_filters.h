@@ -59,6 +59,14 @@ typedef struct {
     bool accept_all;
     uint32_t filter_id[MCP2515_FILTER_SLOTS];
     uint32_t mask[MCP2515_MASK_SLOTS];
+
+    /*
+     * Whether each bank's mask is to be written in the extended layout —
+     * taken from that bank's filters, because a mask is a bit field over an
+     * identifier and not an identifier itself. Pass it to
+     * mcp2515_frame_pack_mask(), which explains what the wrong layout does.
+     */
+    bool mask_extended[MCP2515_MASK_SLOTS];
 } mcp2515_filter_plan_t;
 
 /*
@@ -70,6 +78,11 @@ typedef struct {
  *   - at most MCP2515_FILTER_SLOTS filters;
  *   - filters [0..1] must share one `.mask`, and filters [2..5] a second,
  *     because a mask is per receive buffer and not per filter;
+ *   - filters sharing a bank must also agree on frame type, standard or
+ *     extended. There is one mask register per buffer and a mask's bits are
+ *     positioned differently for the two — an 11-bit SID against a 29-bit
+ *     SID+EID — so a bank holding both kinds has no layout that masks
+ *     either of them as asked;
  *   - every mask must include CAN_FLAG_EXTENDED (the controller always
  *     compares a filter's standard/extended flag exactly, it cannot mask that
  *     bit off) and must not include CAN_FLAG_RTR (there is no hardware

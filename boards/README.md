@@ -20,6 +20,11 @@ Custom headers usually start from an SDK board header in
 | `bras_attrape_caisse` | Eurobot 2026 actuator board | project schematic-derived header |
 | `rp2350_can` | Waveshare RP2350-CAN, onboard XL2515 (MCP2515-compatible) SPI CAN controller, LED on GPIO25 | project header, written from scratch |
 
+The `rp2350_can` header's SPI pin mapping, INT pin, and 16 MHz oscillator
+constant were confirmed in use on the board on 2026-09-04, not just against
+the schematic: the controller answers, and both bit rates derived from that
+oscillator are correct against an independent peer.
+
 The alias deliberately includes the SDK header rather than copying it. SDK
 updates therefore remain the single source of truth for the RP2040-Zero's
 default UART (GPIO0/1), I2C (GPIO6/7), SPI (GPIO10..13), flash configuration,
@@ -46,7 +51,14 @@ on 2026-08-31:
 - SDK-default i2c1 on GPIO6/7, with an empty-bus scan confirming that the bus
   was not stuck.
 
-CAN and servo tests still require their transceivers and peers; I2C needs a real
-device before register transfers are validated. Radio testing requires a Pico W
-or Pico 2 W, and the update installer remains deliberately unrun pending a
-review and BOOTSEL recovery setup.
+On 2026-09-04 the same board validated `can` (can2040 on PIO0) with a CAN
+transceiver on GPIO 29/28, and the `rp2350_can` target validated `mcp2515` on
+its onboard XL2515 — as each other's peer on one bus, at 500 kbit/s and
+1 Mbit/s, with acceptance filters on each. That run found and fixed a real bug
+in `mcp2515`'s mask register layout; see
+[`mcp2515`'s README](../components/mcp2515/README.md).
+
+Servo tests still require their peers; I2C needs a real device before register
+transfers are validated. Radio testing requires a Pico W or Pico 2 W, and the
+update installer remains deliberately unrun pending a review and BOOTSEL
+recovery setup.

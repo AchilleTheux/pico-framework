@@ -178,6 +178,15 @@ static void write_filter(mcp2515_bus_t *bus, uint8_t sidh_reg, uint32_t packed_i
     write_registers(bus, sidh_reg, bytes, sizeof(bytes));
 }
 
+/* A mask goes in the layout of its bank's filters, not its own flag's; see
+   mcp2515_frame_pack_mask(). */
+static void write_mask(mcp2515_bus_t *bus, uint8_t sidh_reg, uint32_t mask, bool extended)
+{
+    uint8_t bytes[4];
+    mcp2515_frame_pack_mask(mask, extended, bytes);
+    write_registers(bus, sidh_reg, bytes, sizeof(bytes));
+}
+
 /*
  * Both receive buffers are always live, so a filter set is only ever applied
  * in full: either neither buffer filters, or both do. mcp2515_filter_plan()
@@ -195,8 +204,8 @@ static void configure_filters(mcp2515_bus_t *bus, const mcp2515_filter_plan_t *p
     for (size_t i = 0; i < MCP2515_FILTER_SLOTS; i++) {
         write_filter(bus, FILTER_REG[i], plan->filter_id[i]);
     }
-    write_filter(bus, REG_RXM0SIDH, plan->mask[0]);
-    write_filter(bus, REG_RXM1SIDH, plan->mask[1]);
+    write_mask(bus, REG_RXM0SIDH, plan->mask[0], plan->mask_extended[0]);
+    write_mask(bus, REG_RXM1SIDH, plan->mask[1], plan->mask_extended[1]);
 
     write_register(bus, REG_RXB0CTRL, 0x04u); /* RXM=00 (use filters), BUKT=1 */
     write_register(bus, REG_RXB1CTRL, 0x00u); /* RXM=00 (use filters) */

@@ -1,5 +1,7 @@
 /* Host-side tests for MCP2515 SIDH/SIDL/EID8/EID0/DLC packing. */
 
+#include <stdio.h>
+
 #include "test.h"
 
 #include "mcp2515_frame.h"
@@ -117,6 +119,82 @@ TEST(packing_a_filter_id_matches_packing_a_message_header)
     CHECK(memcmp(header, filter_bytes, sizeof(filter_bytes)) == 0);
 }
 
+/* ---------------------------------------------------------------------------
+ * Masks
+ *
+ * A mask is a bit field over an identifier rather than an identifier, so its
+ * layout comes from the frame type of the filters it applies to. Nothing in
+ * the mask value itself says which — CAN_FLAG_EXTENDED is required in every
+ * mask purely to acknowledge that the controller always compares frame type —
+ * so getting the layout from the wrong place is not a compile error and not a
+ * runtime error either. It is a filter that matches on payload bytes.
+ * -------------------------------------------------------------------------*/
+
+TEST(a_standard_masks_bits_all_land_in_the_sid_field)
+{
+    uint8_t bytes[4];
+    mcp2515_frame_pack_mask(CAN_STANDARD_ID_MAX | CAN_FLAG_EXTENDED, false, bytes);
+
+    CHECK_EQ_U32(bytes[0], 0xFFu);         /* SIDH: SID10..SID3 */
+    CHECK_EQ_U32(bytes[1] & 0xE0u, 0xE0u); /* SIDL: SID2..SID0  */
+    CHECK_EQ_U32(bytes[2], 0x00u);         /* EID8: nothing to compare */
+    CHECK_EQ_U32(bytes[3], 0x00u);         /* EID0: nor here */
+}
+
+TEST(an_extended_masks_bits_span_sid_and_eid)
+{
+    uint8_t bytes[4];
+    mcp2515_frame_pack_mask(CAN_EXTENDED_ID_MAX | CAN_FLAG_EXTENDED, true, bytes);
+
+    CHECK_EQ_U32(bytes[0], 0xFFu);
+    CHECK_EQ_U32(bytes[1] & 0xE0u, 0xE0u);
+    CHECK_EQ_U32(bytes[1] & 0x03u, 0x03u); /* EID17..EID16 */
+    CHECK_EQ_U32(bytes[2], 0xFFu);
+    CHECK_EQ_U32(bytes[3], 0xFFu);
+}
+
+/*
+ * The invariant that ties the two halves together, and the one whose absence
+ * let a real bus fail: a full-width mask has to cover every bit a filter of
+ * the same frame type can set. When it does not, the uncovered bits are
+ * don't-care — the identifier stops being compared at all — and, for a
+ * standard frame, the mask's EID bits the value spilled into are compared
+ * against the frame's first two data bytes instead.
+ */
+static void check_full_mask_covers_filter(uint32_t id, bool extended)
+{
+    const uint32_t widest = extended ? CAN_EXTENDED_ID_MAX : CAN_STANDARD_ID_MAX;
+    uint8_t filter_bytes[4];
+    uint8_t mask_bytes[4];
+
+    mcp2515_frame_pack_id(can_id_pack(id, extended, false), filter_bytes);
+    mcp2515_frame_pack_mask(widest | CAN_FLAG_EXTENDED, extended, mask_bytes);
+
+    for (size_t i = 0; i < 4; i++) {
+        /* EXIDE is not part of the value and RXMn has no such bit. */
+        const uint8_t value_bits = (uint8_t)(filter_bytes[i] & (i == 1 ? 0xF7u : 0xFFu));
+        if ((value_bits & (uint8_t)~mask_bytes[i]) != 0) {
+            printf("    byte %zu: filter 0x%02X has bits outside mask 0x%02X\n",
+                   i, value_bits, mask_bytes[i]);
+            CHECK(false);
+            return;
+        }
+    }
+}
+
+TEST(a_full_standard_mask_compares_every_bit_of_a_standard_filter)
+{
+    check_full_mask_covers_filter(0x123, false);
+    check_full_mask_covers_filter(0x321, false);
+    check_full_mask_covers_filter(CAN_STANDARD_ID_MAX, false);
+}
+
+TEST(a_full_extended_mask_compares_every_bit_of_an_extended_filter)
+{
+    check_full_mask_covers_filter(0x01ABCDE0, true);
+    check_full_mask_covers_filter(CAN_EXTENDED_ID_MAX, true);
+}
+
 TEST_MAIN(
     RUN(a_standard_data_frame_round_trips);
     RUN(a_standard_id_of_zero_round_trips);
@@ -128,4 +206,8 @@ TEST_MAIN(
     RUN(the_extended_flag_lives_in_a_specific_sidl_bit);
     RUN(the_remote_flag_lives_in_a_specific_dlc_bit);
     RUN(packing_a_filter_id_matches_packing_a_message_header);
+    RUN(a_standard_masks_bits_all_land_in_the_sid_field);
+    RUN(an_extended_masks_bits_span_sid_and_eid);
+    RUN(a_full_standard_mask_compares_every_bit_of_a_standard_filter);
+    RUN(a_full_extended_mask_compares_every_bit_of_an_extended_filter);
 )

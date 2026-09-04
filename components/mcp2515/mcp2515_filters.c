@@ -27,9 +27,13 @@ bool mcp2515_filters_are_valid(const can_filter_t *filters, size_t count)
     }
 
     /* One mask register per receive buffer, so every filter landing in the
-       same buffer has to agree on it. */
+       same buffer has to agree on it — and on frame type, since the single
+       mask is written in the layout of the frame type it applies to and the
+       two layouts put a mask's bits in different registers. */
     for (size_t i = 1; i < count; i++) {
-        if (filters[i].mask != filters[bank_leader(i)].mask) {
+        const size_t leader = bank_leader(i);
+        if (filters[i].mask != filters[leader].mask ||
+            can_id_is_extended(filters[i].id) != can_id_is_extended(filters[leader].id)) {
             return false;
         }
     }
@@ -51,6 +55,8 @@ bool mcp2515_filter_plan(const can_filter_t *filters, size_t count,
         }
         plan->mask[0] = 0;
         plan->mask[1] = 0;
+        plan->mask_extended[0] = false;
+        plan->mask_extended[1] = false;
         return true;
     }
 
@@ -63,6 +69,7 @@ bool mcp2515_filter_plan(const can_filter_t *filters, size_t count,
         plan->filter_id[i] = filters[i % bank0_count].id;
     }
     plan->mask[0] = filters[0].mask;
+    plan->mask_extended[0] = can_id_is_extended(filters[0].id);
 
     /*
      * RXB1: whatever is left over. With two filters or fewer there is no
@@ -79,6 +86,7 @@ bool mcp2515_filter_plan(const can_filter_t *filters, size_t count,
         plan->filter_id[MCP2515_BANK0_SLOTS + i] = filters[bank1_source + (i % bank1_count)].id;
     }
     plan->mask[1] = filters[bank1_source].mask;
+    plan->mask_extended[1] = can_id_is_extended(filters[bank1_source].id);
 
     return true;
 }

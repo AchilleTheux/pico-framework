@@ -27,12 +27,47 @@
 #define CAN_TEST_BITRATE CAN_DEFAULT_BITRATE
 #endif
 
+/*
+ * Acceptance filter to install; see CAN_TEST_FILTER in CMakeLists.txt. The
+ * frames this application sends are chosen so that each setting rejects a
+ * known two of the three: a filter that is silently doing nothing looks
+ * exactly like one that works until the traffic it should reject arrives.
+ */
+#define CAN_TEST_FILTER_NONE 0
+#define CAN_TEST_FILTER_ID_123 1
+#define CAN_TEST_FILTER_EXT_ONLY 2
+
+#ifndef CAN_TEST_FILTER
+#define CAN_TEST_FILTER CAN_TEST_FILTER_NONE
+#endif
+
 #define RX_QUEUE_FRAMES 64u
 #define SEND_INTERVAL_MS 1000u
 #define STATS_INTERVAL_MS 5000u
 
 static can_bus_t bus;
 static uint8_t rx_storage[CAN_QUEUE_STORAGE_SIZE(RX_QUEUE_FRAMES)];
+static can_filter_t filters[1];
+
+/* Fills `filters`, names the choice, and returns how many were installed. */
+static size_t build_filters(const char **description)
+{
+#if CAN_TEST_FILTER == CAN_TEST_FILTER_ID_123
+    filters[0].id = can_id_pack(0x123, false, false);
+    filters[0].mask = CAN_STANDARD_ID_MAX | CAN_FLAG_EXTENDED;
+    *description = "standard id 0x123 only";
+    return 1;
+#elif CAN_TEST_FILTER == CAN_TEST_FILTER_EXT_ONLY
+    filters[0].id = CAN_FLAG_EXTENDED;
+    filters[0].mask = CAN_FLAG_EXTENDED;
+    *description = "extended frames only";
+    return 1;
+#else
+    (void)filters;
+    *description = "none: every valid frame accepted";
+    return 0;
+#endif
+}
 
 static PIO selected_pio(void)
 {
@@ -116,11 +151,16 @@ int main(void)
     stdio_init_all();
     sleep_ms(2000);
 
+    const char *filter_description = NULL;
+    const size_t filter_count = build_filters(&filter_description);
+
     const can_bus_config_t config = {
         .pio = selected_pio(),
         .rx_pin = CAN_TEST_RX_PIN,
         .tx_pin = CAN_TEST_TX_PIN,
         .bitrate = CAN_TEST_BITRATE,
+        .filters = filter_count != 0 ? filters : NULL,
+        .filter_count = filter_count,
         .rx_storage = rx_storage,
         .rx_storage_size = sizeof(rx_storage),
         .irq_priority = 0,
@@ -137,6 +177,7 @@ int main(void)
     printf("\ncan_test: board=%s pio=%d rx=%d tx=%d bitrate=%d\n",
            PICO_BOARD, CAN_TEST_PIO, CAN_TEST_RX_PIN, CAN_TEST_TX_PIN,
            CAN_TEST_BITRATE);
+    printf("filter: %s\n", filter_description);
     if (CAN_TEST_TX_PIN == CAN_NO_TX_PIN) {
         puts("silent monitor mode: no frames or acknowledgements will be transmitted");
     } else {

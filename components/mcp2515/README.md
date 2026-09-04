@@ -129,13 +129,36 @@ and both masks are the caller's. Both buffers then accept exactly the same
 frames and the pair is depth rather than a hole. `mcp2515_filters.h` owns that
 mapping, separately from the SPI code, so it is host-tested.
 
-Two further hardware limits, also validated at init:
+Three further hardware limits, also validated at init:
 
 * every filter's mask must include `CAN_FLAG_EXTENDED` — the controller
   always compares a filter's standard/extended flag exactly, it cannot mask
   that bit off the way `can`'s software filters can;
 * no filter's mask may include `CAN_FLAG_RTR` — the controller has no
-  hardware remote-request filter at all.
+  hardware remote-request filter at all;
+* filters sharing a bank must agree on frame type as well as on `.mask`.
+  There is one mask register per buffer, and a mask's bits sit in different
+  registers for the two frame types (below), so a bank holding one standard
+  and one extended filter has no layout that masks both as asked.
+
+### A mask is not an identifier
+
+A mask's significant bits are positioned by the frame type of the filters it
+applies to, not by anything in the mask value itself: a standard filter's 11
+bits are `SID`, an extended filter's 29 are `SID` plus `EID`. Since every
+mask must carry `CAN_FLAG_EXTENDED` for the reason above, that flag cannot
+also carry the layout — so `mcp2515_filter_plan()` derives it from the bank's
+filters and reports it as `mask_extended`, and `mcp2515_frame_pack_mask()`
+writes `RXMn` accordingly.
+
+Getting that wrong is not a near miss, which is why it has its own host
+tests. Written in the extended layout, a standard bank's mask puts every
+significant bit below the `SID` field: `RXM`'s `SID` bits all become
+don't-care, and its `EID` bits — which the controller compares against the
+first two **data** bytes of a standard frame — take their place. The filter
+stops comparing identifiers at all and matches on payload. That was a real
+bug here, and the bus it produced is described under
+[Hardware validation](#hardware-validation).
 
 RXB0 has rollover enabled unconditionally (`BUKT`): when it fills, the next
 message rolls into RXB1 instead of being dropped, buying a little more
@@ -180,8 +203,53 @@ the post-reset wait really covers 128 oscillator cycles at each of them.
 short filter list still leaves both receive buffers filtering, and each
 constraint the controller cannot express.
 `tests/components/mcp2515_frame_test.c` covers SIDH/SIDL/EID8/EID0/DLC
-packing round-trips for standard, extended, data, and remote frames, and
-pins the exact bit position of the extended and remote-request flags.
+packing round-trips for standard, extended, data, and remote frames, pins the
+exact bit position of the extended and remote-request flags, and — since the
+bug described below — pins where a *mask*'s bits land in each layout, plus
+the invariant that ties the halves together: a full-width mask must compare
+every bit a filter of the same frame type can set.
 `apps/tests/mcp2515_test` is the manual hardware test, with `default`
 (normal, needs a second node and transceivers), `loopback` (self-test, needs
-neither), and `monitor` (silent, receive-only) profiles.
+neither), `filter` (normal plus one hardware acceptance filter), and
+`monitor` (silent, receive-only) profiles.
+
+## Hardware validation
+
+Validated on 2026-09-04 on a Waveshare RP2350-CAN (`BOARD=rp2350_can`, its
+onboard XL2515 on SPI1, 16 MHz crystal), against a Waveshare RP2040-Zero
+running [`can`](../can/) on PIO0 through its own transceiver as the second
+node — so the two backends were each other's peer, and every result below is
+also a cross-controller interoperability result.
+
+* `loopback`, with nothing else connected: standard, extended, and RTR
+  frames round-tripped through the controller with identifiers, DLCs, and
+  payloads intact, `rx_overflow` and `controller_errors` zero. This is what
+  proves the SPI transport, the reset/`CANSTAT` probe, the `CNF1..3` timing,
+  and the mode switch, independently of any bus.
+* `default` against the PIO node, 500 kbit/s: 66 frames each way over 60 s,
+  `received` and `transmitted` both advancing 5 per 5 s, no drift, no
+  refusals, no controller errors.
+* The same at **1 Mbit/s**, the controller's maximum and this component's
+  `MCP2515_MAX_BITRATE` — a second bit-timing point, computed rather than
+  taken from a table, confirmed against a peer using an entirely different
+  timing implementation.
+* One `rx_overflow` was recorded once, at the moment the controller joined a
+  bus on which the peer had a backlog of unacknowledged frames to flush. It
+  never recurred in steady state. Two hardware receive buffers drained from a
+  main loop behave exactly as documented above.
+* `filter`: with one hardware filter for standard id `0x123`, only those
+  frames were delivered — the peer's extended and RTR frames rejected in
+  silicon — while the node went on transmitting all three itself. The
+  complementary `ext_only` setting delivered only the extended frame.
+
+**That last step is what caught the mask-layout bug**, and it is worth
+recording why nothing earlier could have. The host tests asserted that each
+bank's planned mask equalled the caller's `.mask`, which it did; they never
+asserted how a mask is *written*, and `mcp2515_frame_pack_id()` was only ever
+tested on identifiers. Loopback, `default`, and both bitrates all passed with
+the bug present, because none of them installs a filter. On the wire the node
+then received **only the `0x321` RTR frames** — the exact opposite of the one
+identifier it had been given, and not a random one: with `SID` masked to
+don't-care, the mask's spilled `EID` bits were being compared against the
+first two data bytes, and an RTR frame is the only one of the three that
+carries none.

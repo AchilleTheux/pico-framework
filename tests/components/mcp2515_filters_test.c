@@ -32,6 +32,18 @@ static can_filter_t std_filter(uint32_t id, uint32_t mask)
     return filter;
 }
 
+/* The same for an extended identifier. */
+#define EXACT_EXT (CAN_EXTENDED_ID_MAX | CAN_FLAG_EXTENDED)
+
+static can_filter_t ext_filter(uint32_t id, uint32_t mask)
+{
+    can_filter_t filter = {
+        .id = can_id_pack(id, true, false),
+        .mask = mask,
+    };
+    return filter;
+}
+
 /* True when every slot of `plan` matches one of `count` accepted ids. */
 static bool plan_only_accepts(const mcp2515_filter_plan_t *plan,
                               const uint32_t *ids, size_t count)
@@ -170,6 +182,68 @@ TEST(the_two_banks_may_use_different_masks)
  * What the hardware cannot express
  * -------------------------------------------------------------------------*/
 
+/* ---------------------------------------------------------------------------
+ * Which layout each bank's mask is written in
+ * -------------------------------------------------------------------------*/
+
+TEST(a_standard_banks_mask_is_planned_in_the_standard_layout)
+{
+    /* Both banks: with one filter, RXB1 repeats RXB0's. */
+    const can_filter_t filters[] = { std_filter(0x123, EXACT_STD) };
+
+    mcp2515_filter_plan_t plan;
+    CHECK(mcp2515_filter_plan(filters, count_of_(filters), &plan));
+    CHECK_EQ_INT(plan.mask_extended[0], false);
+    CHECK_EQ_INT(plan.mask_extended[1], false);
+}
+
+TEST(an_extended_banks_mask_is_planned_in_the_extended_layout)
+{
+    const can_filter_t filters[] = { ext_filter(0x01ABCDE0, EXACT_EXT) };
+
+    mcp2515_filter_plan_t plan;
+    CHECK(mcp2515_filter_plan(filters, count_of_(filters), &plan));
+    CHECK_EQ_INT(plan.mask_extended[0], true);
+    CHECK_EQ_INT(plan.mask_extended[1], true);
+}
+
+TEST(each_bank_takes_its_layout_from_its_own_filters)
+{
+    /* RXB0 standard, RXB1 extended: one mask register each, so the two may
+       differ in layout as well as in value. */
+    const can_filter_t filters[] = {
+        std_filter(0x100, EXACT_STD),
+        std_filter(0x200, EXACT_STD),
+        ext_filter(0x01ABCDE0, EXACT_EXT),
+        ext_filter(0x01ABCDE1, EXACT_EXT),
+    };
+
+    mcp2515_filter_plan_t plan;
+    CHECK(mcp2515_filter_plan(filters, count_of_(filters), &plan));
+    CHECK_EQ_INT(plan.mask_extended[0], false);
+    CHECK_EQ_INT(plan.mask_extended[1], true);
+}
+
+TEST(filters_sharing_a_bank_must_share_a_frame_type)
+{
+    /* A bank has one mask register, and a mask's bits sit in different
+       registers for the two frame types, so there is no layout that masks
+       both of these as asked. Refusing beats masking one of them wrongly. */
+    const can_filter_t bank0_mixed[] = {
+        std_filter(0x100, EXACT_STD),
+        ext_filter(0x01ABCDE0, EXACT_STD),
+    };
+    CHECK(!mcp2515_filters_are_valid(bank0_mixed, count_of_(bank0_mixed)));
+
+    const can_filter_t bank1_mixed[] = {
+        std_filter(0x100, EXACT_STD),
+        std_filter(0x200, EXACT_STD),
+        std_filter(0x300, EXACT_STD),
+        ext_filter(0x01ABCDE0, EXACT_STD),
+    };
+    CHECK(!mcp2515_filters_are_valid(bank1_mixed, count_of_(bank1_mixed)));
+}
+
 TEST(filters_sharing_a_bank_must_share_a_mask)
 {
     const can_filter_t bank0_disagrees[] = {
@@ -270,6 +344,10 @@ TEST_MAIN(
     RUN(six_filters_land_one_per_slot);
     RUN(the_two_banks_may_use_different_masks);
 
+    RUN(a_standard_banks_mask_is_planned_in_the_standard_layout);
+    RUN(an_extended_banks_mask_is_planned_in_the_extended_layout);
+    RUN(each_bank_takes_its_layout_from_its_own_filters);
+    RUN(filters_sharing_a_bank_must_share_a_frame_type);
     RUN(filters_sharing_a_bank_must_share_a_mask);
     RUN(the_boundary_between_the_banks_is_after_the_second_filter);
     RUN(a_mask_must_compare_the_frame_type);

@@ -26,6 +26,16 @@ void mcp2515_frame_pack_id(uint32_t packed, uint8_t out[4])
     }
 }
 
+void mcp2515_frame_pack_mask(uint32_t mask, bool extended, uint8_t out[4])
+{
+    /* The layout is the caller's to choose, so the flag in `mask` — which
+       mcp2515_filters_are_valid() requires purely as an acknowledgement that
+       frame type is always compared — is replaced rather than consulted. */
+    mcp2515_frame_pack_id(extended ? (mask | CAN_FLAG_EXTENDED)
+                                   : (mask & ~CAN_FLAG_EXTENDED),
+                          out);
+}
+
 void mcp2515_frame_pack_header(const can_message_t *message, uint8_t header[MCP2515_FRAME_HEADER_SIZE])
 {
     const uint32_t packed = can_id_pack(message->id, message->extended, message->remote);

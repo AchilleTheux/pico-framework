@@ -41,7 +41,11 @@ MATRIX=(
     "pico:tests/can_test:default"
     "pico2:tests/can_test:default"
     "rp2040_zero:tests/can_test:default"
+    "rp2040_zero:tests/can_test:rp2040_zero"
     "pico2:tests/can_test:monitor"
+    # The two acceptance-filter builds, so the filter code stays compiled.
+    "rp2040_zero:tests/can_test:filter"
+    "rp2350_can:tests/mcp2515_test:filter"
     "pico2:tests/mcp2515_test:default"
     "rp2350_can:tests/mcp2515_test:loopback"
     "pico2:tests/mcp2515_test:monitor"

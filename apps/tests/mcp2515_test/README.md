@@ -53,7 +53,38 @@ make BOARD=rp2350_can APP=tests/mcp2515_test PROFILE=default flash
 ```
 
 The second node must use the same 500 kbit/s bitrate. It may transmit any
-valid frames; no acceptance filters are enabled in this test.
+valid frames. The firmware itself sends, in rotation, a standard data frame
+with id `0x123`, an extended data frame with id `0x01ABCDE0`, and an RTR
+frame with id `0x321` — so a second board running either this application or
+`tests/can_test` is a peer for it.
+
+Note that a USB CDC port delivers nothing until the host raises DTR, so a
+reader that does not assert it sees a silent board rather than this output.
+
+## Acceptance filter profile
+
+```bash
+make BOARD=rp2350_can APP=tests/mcp2515_test PROFILE=filter flash
+```
+
+Normal mode plus one **hardware** acceptance filter, chosen by
+`MCP2515_TEST_FILTER`:
+
+| Value | Accepts | Of the three frames a peer sends |
+|-------|---------|----------------------------------|
+| `none` (default) | every valid frame | all three |
+| `id_123` | standard id `0x123` only | the standard data frame |
+| `ext_only` | extended frames only | the extended data frame |
+
+Two of the three frames must *disappear* — that is the whole point, since a
+receive buffer left unfiltered accepts the entire bus and looks identical to
+one that is working. This profile is also the only check on the RXF0..RXF5 /
+RXM0..RXM1 bank split and on the layout a mask is written in: the controller
+has two receive buffers with unequal filter banks and no way to disable
+either, so a plan that left one bank open, or that positioned a mask's bits
+in the wrong register, would still deliver frames it was told to reject. It
+found a real bug doing exactly that; see
+[`mcp2515`'s README](../../../components/mcp2515/README.md).
 
 ## Silent monitor profile
 
@@ -71,4 +102,15 @@ acknowledges anything on the bus.
 - Sent frames print once when queued. In loopback mode the very next line is
   normally the same frame received back.
 - `rx_overflow` and `controller_errors` remain zero on a healthy bus;
-  `last_eflg` shows the raw error-flag register when they are not.
+  `last_eflg` shows the raw error-flag register when they are not. A single
+  `rx_overflow` recorded as the controller joins a busy bus, which then never
+  recurs, is the two hardware receive buffers filling once before the polling
+  loop got to them — not a fault.
+
+## Validated result
+
+Run on 2026-09-04 on a Waveshare RP2350-CAN: `loopback` standalone, then
+`default` and `filter` against a Waveshare RP2040-Zero running
+`tests/can_test` on PIO0, at 500 kbit/s and again at 1 Mbit/s. See
+[`mcp2515`'s README](../../../components/mcp2515/README.md) for what each run
+established, including the bug the filter run found.

@@ -36,11 +36,47 @@ make BOARD=pico APP=tests/can_test PROFILE=default flash
 ```
 
 Use `BOARD=pico2` for RP2350. Open USB CDC or the default UART at 115200. The
-firmware sends, in rotation, a standard data frame, an extended data frame, and
-an RTR frame. It prints all received frames and statistics every five seconds.
+firmware sends, in rotation, a standard data frame with id `0x123`, an
+extended data frame with id `0x01ABCDE0`, and an RTR frame with id `0x321`. It
+prints all received frames and statistics every five seconds.
 
 The second node must use the same 500 kbit/s bitrate. It may transmit any valid
-frames; no acceptance filters are enabled in this test.
+frames.
+
+Note that a USB CDC port delivers nothing until the host raises DTR, so a
+reader that does not assert it sees a silent board rather than this output.
+
+## RP2040-Zero profile
+
+```bash
+make BOARD=rp2040_zero APP=tests/can_test PROFILE=rp2040_zero flash
+```
+
+For a transceiver on the board's bottom-edge pads: RXD on GPIO 29, TXD on
+GPIO 28. Neither pin has another function there. This is the profile the
+component was validated with, paired with
+`BOARD=rp2350_can APP=tests/mcp2515_test PROFILE=default` on the same bus, so
+the PIO backend and an MCP2515 acknowledge each other.
+
+## Acceptance filter profile
+
+```bash
+make BOARD=rp2040_zero APP=tests/can_test PROFILE=filter flash
+```
+
+The same wiring plus one software filter. `CAN_TEST_FILTER` selects it:
+
+| Value | Accepts | Of the three frames a peer sends |
+|-------|---------|----------------------------------|
+| `none` (default) | every valid frame | all three |
+| `id_123` | standard id `0x123` only | the standard data frame |
+| `ext_only` | extended frames only | the extended data frame |
+
+A filter that is quietly accepting everything looks exactly like one that
+works, so the point of the rotation is that two of the three frames must
+*disappear*: one `RX` line per three the peer sends, with `filtered` rising by
+two for each one accepted. The node keeps transmitting all three regardless —
+a receive filter is not a transmit filter.
 
 ## Silent monitor profile
 
@@ -72,3 +108,14 @@ The default wiring's GPIO 5 is not configured in this profile.
 | queue drops rise | main loop is not draining received frames fast enough |
 | no received traffic in monitor mode | TXD not held recessive, wrong RX pin, or no correctly acknowledged traffic between other nodes |
 | init reports PIO/IRQ in use | another component already owns the selected PIO block |
+| `parse` and `attempts` climbing together in the tens of thousands | nothing is acknowledging: no second node, wrong bitrate, or a wiring/termination fault. Expected, and harmless, while a node waits alone for its peer to boot — the counters freeze the moment one appears |
+| no output at all on USB CDC | the reader is not asserting DTR |
+| a burst of identical frames, with `queue_drop` raised but no longer rising | this application prints every frame it receives, so an unread USB console eventually blocks its main loop: the queue overflows, the peer stops being acknowledged and retries one frame, and the copies that were received print all at once when the console drains. A test-harness artefact, not a bus fault — in a continuously read session the stream is one frame per type per second with no repeats |
+| every frame filtered out, or the wrong one getting through | check `CAN_TEST_FILTER` against the table above; the printed `filter:` line at startup says which is compiled in |
+
+## Validated result
+
+Run on 2026-09-04 with `PROFILE=rp2040_zero` against a Waveshare RP2350-CAN
+running `tests/mcp2515_test`, at 500 kbit/s and again at 1 Mbit/s, plus the
+`filter` profile. See [`can`'s README](../../../components/can/README.md) for
+what each run established.
