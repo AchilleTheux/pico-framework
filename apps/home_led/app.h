@@ -27,6 +27,7 @@
 #include "effects.h"
 #include "firmware_service.h"
 #include "ha.h"
+#include "led_range.h"
 #include "light.h"
 #include "mqtt.h"
 #include "persistent_config.h"
@@ -60,6 +61,9 @@
    applied to the broker rather than to flash. */
 #define PUBLISH_INTERVAL_MS 250u
 
+_Static_assert(APP_LED_COUNT > 0 && APP_LED_COUNT <= UINT16_MAX,
+               "home_led requires 1..65535 LEDs");
+
 /* ---------------------------------------------------------------------------
  * State
  * -------------------------------------------------------------------------*/
@@ -85,8 +89,9 @@ typedef struct {
 } stored_settings_t;
 
 typedef struct {
-    /* The light, and the animation selected for it. */
+    /* The light, the selected part of its strip, and its animation state. */
     light_t light;
+    led_range_t range;
     effects_t effects;
 
     /* The strip, and the two buffers it needs. `pixels` is what effects.c
@@ -108,6 +113,8 @@ typedef struct {
     ha_t ha;
     bool radio_ready;
     bool ha_ready;
+    bool announce_pending;
+    uint8_t announce_step;
 
     /* Flash. */
     persistent_config_t config;
@@ -116,12 +123,15 @@ typedef struct {
 
     /*
      * What the broker and the flash have each last been told, and when the
-     * light last actually moved. light.generation is compared against these
-     * to decide when to publish and when to write.
+     * light or range last actually moved. Their generation counters are
+     * compared against these to decide when to publish and when to write.
      */
     uint32_t published_generation;
+    uint32_t published_range_generation;
     uint32_t saved_generation;
+    uint32_t saved_range_generation;
     uint32_t seen_generation;
+    uint32_t seen_range_generation;
     uint32_t last_change_ms;
     uint32_t last_publish_ms;
 } app_t;

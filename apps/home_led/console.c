@@ -138,6 +138,29 @@ static int cmd_effect(cli_t *c, void *user_data)
     return CLI_OK;
 }
 
+static int cmd_range(cli_t *c, void *user_data)
+{
+    app_t *app = (app_t *)user_data;
+    uint32_t first;
+    uint32_t last;
+
+    if (!cli_next_u32(c, &first)) {
+        cli_printf(c, "range %u..%u\r\n", (unsigned)led_range_first(&app->range),
+                   (unsigned)led_range_last(&app->range));
+        return CLI_OK;
+    }
+    if (!cli_next_u32(c, &last) || first < 1u || first > last ||
+        last > APP_LED_COUNT) {
+        cli_printf(c, "usage: range <first> <last>, 1..%u\r\n",
+                   (unsigned)APP_LED_COUNT);
+        return CLI_ERR_ARG;
+    }
+
+    (void)led_range_set(&app->range, (uint16_t)first, (uint16_t)last);
+    cli_printf(c, "range %u..%u\r\n", (unsigned)first, (unsigned)last);
+    return CLI_OK;
+}
+
 static int cmd_test(cli_t *c, void *user_data)
 {
     app_t *app = (app_t *)user_data;
@@ -192,6 +215,10 @@ static int cmd_status(cli_t *c, void *user_data)
                app->strip_ready ? "" : "  (NOT INITIALISED)");
     cli_printf(c, "light        %s, effect %s\r\n", light->on ? "on" : "off",
                light_effect_name(light->effect));
+    cli_printf(c, "range        %u..%u (%u leds)\r\n",
+               (unsigned)led_range_first(&app->range),
+               (unsigned)led_range_last(&app->range),
+               (unsigned)led_range_length(&app->range));
     cli_printf(c, "brightness   %u (showing %u)\r\n", (unsigned)light->brightness,
                (unsigned)light_current_brightness(light));
     if (light->color_mode == LIGHT_COLOR_MODE_TEMP) {
@@ -230,7 +257,9 @@ static int cmd_status(cli_t *c, void *user_data)
                (unsigned long)mqtt_sessions(&app->mqtt),
                (unsigned long)mqtt_messages_dropped(&app->mqtt));
     cli_printf(c, "unsaved      %s\r\n",
-               light->generation != app->saved_generation ? "yes" : "no");
+               light->generation != app->saved_generation ||
+                       app->range.generation != app->saved_range_generation
+                   ? "yes" : "no");
     cli_printf(c, "updater      %s\r\n", app->firmware_ready ? "ready" : "unavailable");
     return CLI_OK;
 }
@@ -244,6 +273,7 @@ size_t console_light_commands(app_t *app, cli_command_t *out, size_t capacity)
         { "rgb",    "rgb <r> <g> <b> - set an rgb colour",    cmd_rgb,        NULL },
         { "ct",     "ct [mireds] - colour temperature",       cmd_ct,         NULL },
         { "effect", "effect [name] - show, list, or select",  cmd_effect,     NULL },
+        { "range",  "range [first last] - active LEDs",       cmd_range,      NULL },
         { "test",   "toggle the wiring test pattern",         cmd_test,       NULL },
         { "order",  "order [GRB|RGB|...] - strip wire order", cmd_order,      NULL },
         { "status", "light, strip, wifi and broker state",    cmd_status,     NULL },

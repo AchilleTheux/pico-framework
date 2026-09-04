@@ -26,9 +26,9 @@ bool console_init(app_t *app);
 /* What the board says once, on startup. */
 void console_banner(app_t *app);
 
-/* The light's own commands: on, off, bri, rgb, ct, effect, test, order,
-   status. */
-#define CONSOLE_LIGHT_COMMAND_COUNT 9u
+/* The light's own commands: on, off, bri, rgb, ct, effect, range, test,
+   order, status. */
+#define CONSOLE_LIGHT_COMMAND_COUNT 10u
 
 size_t console_light_commands(app_t *app, cli_command_t *out, size_t capacity);
 

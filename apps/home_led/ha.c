@@ -12,10 +12,19 @@
  * -------------------------------------------------------------------------*/
 
 /* snprintf into a fixed buffer, reporting truncation rather than hiding it. */
-static bool compose(char *out, size_t size, const char *prefix, const char *id,
-                    const char *suffix)
+static bool compose(char *out, size_t size, const char *prefix, const char *component,
+                    const char *id, const char *suffix)
 {
-    const int written = snprintf(out, size, "%s/light/%s/%s", prefix, id, suffix);
+    const int written = snprintf(out, size, "%s/%s/%s/%s", prefix, component, id, suffix);
+
+    return written > 0 && (size_t)written < size;
+}
+
+static bool compose_range_config(char *out, size_t size, const char *prefix,
+                                 const char *id, const char *endpoint)
+{
+    const int written = snprintf(out, size, "%s/number/%s_range_%s/config",
+                                 prefix, id, endpoint);
 
     return written > 0 && (size_t)written < size;
 }
@@ -38,15 +47,32 @@ bool ha_init(ha_t *ha, const char *device_id, const char *discovery_prefix)
         : DEFAULT_DISCOVERY_PREFIX;
 
     /*
-     * All four or none. A device with a working command topic and a truncated
+     * All ten or none. A device with a working command topic and a truncated
      * state topic looks like it is ignoring Home Assistant, which is a much
      * harder thing to diagnose than a refusal at startup.
      */
-    if (!compose(ha->topic_config, sizeof(ha->topic_config), prefix, device_id, "config") ||
-        !compose(ha->topic_command, sizeof(ha->topic_command), prefix, device_id, "set") ||
-        !compose(ha->topic_state, sizeof(ha->topic_state), prefix, device_id, "state") ||
-        !compose(ha->topic_availability, sizeof(ha->topic_availability), prefix,
-                 device_id, "status")) {
+    if (!compose(ha->topic_config, sizeof(ha->topic_config), prefix, "light",
+                 device_id, "config") ||
+        !compose(ha->topic_command, sizeof(ha->topic_command), prefix, "light",
+                 device_id, "set") ||
+        !compose(ha->topic_state, sizeof(ha->topic_state), prefix, "light",
+                 device_id, "state") ||
+        !compose(ha->topic_availability, sizeof(ha->topic_availability), prefix, "light",
+                 device_id, "status") ||
+        !compose_range_config(ha->topic_range_first_config,
+                              sizeof(ha->topic_range_first_config), prefix,
+                              device_id, "first") ||
+        !compose(ha->topic_range_first_command, sizeof(ha->topic_range_first_command),
+                 prefix, "light", device_id, "range/first/set") ||
+        !compose(ha->topic_range_first_state, sizeof(ha->topic_range_first_state),
+                 prefix, "light", device_id, "range/first/state") ||
+        !compose_range_config(ha->topic_range_last_config,
+                              sizeof(ha->topic_range_last_config), prefix,
+                              device_id, "last") ||
+        !compose(ha->topic_range_last_command, sizeof(ha->topic_range_last_command),
+                 prefix, "light", device_id, "range/last/set") ||
+        !compose(ha->topic_range_last_state, sizeof(ha->topic_range_last_state),
+                 prefix, "light", device_id, "range/last/state")) {
         memset(ha, 0, sizeof(*ha));
         return false;
     }
@@ -57,6 +83,18 @@ bool ha_init(ha_t *ha, const char *device_id, const char *discovery_prefix)
 /* ---------------------------------------------------------------------------
  * Discovery
  * -------------------------------------------------------------------------*/
+
+static void write_device(json_writer_t *writer, const ha_t *ha)
+{
+    json_writer_object_open(writer, "device");
+    json_writer_array_open(writer, "identifiers");
+    json_writer_string(writer, NULL, ha->device_id);
+    json_writer_array_close(writer);
+    json_writer_string(writer, "name", "Pico LED controller");
+    json_writer_string(writer, "manufacturer", "pico-framework");
+    json_writer_string(writer, "model", "home_led");
+    json_writer_object_close(writer);
+}
 
 size_t ha_build_discovery(const ha_t *ha, char *out, size_t size)
 {
@@ -110,15 +148,49 @@ size_t ha_build_discovery(const ha_t *ha, char *out, size_t size)
      * device rather than listing a bare entity. `identifiers` is the key it
      * matches on across restarts.
      */
-    json_writer_object_open(&writer, "device");
-    json_writer_array_open(&writer, "identifiers");
-    json_writer_string(&writer, NULL, ha->device_id);
-    json_writer_array_close(&writer);
-    json_writer_string(&writer, "name", "Pico LED controller");
-    json_writer_string(&writer, "manufacturer", "pico-framework");
-    json_writer_string(&writer, "model", "home_led");
+    write_device(&writer, ha);
+
     json_writer_object_close(&writer);
 
+    return json_writer_finish(&writer) ? json_writer_length(&writer) : 0;
+}
+
+size_t ha_build_range_discovery(const ha_t *ha, ha_range_endpoint_t endpoint,
+                                uint16_t led_count, char *out, size_t size)
+{
+    if (ha == NULL || out == NULL || size == 0u || led_count == 0u ||
+        ha->device_id[0] == '\0' ||
+        (endpoint != HA_RANGE_FIRST && endpoint != HA_RANGE_LAST)) {
+        return 0;
+    }
+
+    const bool first = endpoint == HA_RANGE_FIRST;
+    const char *name = first ? "Range start" : "Range end";
+    const char *command_topic = first ? ha->topic_range_first_command
+                                      : ha->topic_range_last_command;
+    const char *state_topic = first ? ha->topic_range_first_state
+                                    : ha->topic_range_last_state;
+    char unique_id[HA_DEVICE_ID_MAX_LENGTH + 20u];
+    snprintf(unique_id, sizeof(unique_id), "%s_range_%s", ha->device_id,
+             first ? "first" : "last");
+
+    json_writer_t writer;
+    json_writer_init(&writer, out, size);
+
+    json_writer_object_open(&writer, NULL);
+    json_writer_string(&writer, "name", name);
+    json_writer_string(&writer, "unique_id", unique_id);
+    json_writer_string(&writer, "command_topic", command_topic);
+    json_writer_string(&writer, "state_topic", state_topic);
+    json_writer_string(&writer, "availability_topic", ha->topic_availability);
+    json_writer_string(&writer, "payload_available", HA_AVAILABLE);
+    json_writer_string(&writer, "payload_not_available", HA_UNAVAILABLE);
+    json_writer_int(&writer, "min", 1);
+    json_writer_int(&writer, "max", (int32_t)led_count);
+    json_writer_int(&writer, "step", 1);
+    json_writer_string(&writer, "mode", "slider");
+    json_writer_int(&writer, "qos", 1);
+    write_device(&writer, ha);
     json_writer_object_close(&writer);
 
     return json_writer_finish(&writer) ? json_writer_length(&writer) : 0;
@@ -170,6 +242,22 @@ size_t ha_build_state(const ha_t *ha, const light_t *light, char *out, size_t si
     json_writer_object_close(&writer);
 
     return json_writer_finish(&writer) ? json_writer_length(&writer) : 0;
+}
+
+size_t ha_build_range_state(const led_range_t *range, ha_range_endpoint_t endpoint,
+                            char *out, size_t size)
+{
+    if (range == NULL || out == NULL || size == 0u ||
+        (endpoint != HA_RANGE_FIRST && endpoint != HA_RANGE_LAST)) {
+        return 0;
+    }
+
+    const unsigned value = endpoint == HA_RANGE_FIRST
+        ? (unsigned)led_range_first(range)
+        : (unsigned)led_range_last(range);
+    const int written = snprintf(out, size, "%u", value);
+
+    return written > 0 && (size_t)written < size ? (size_t)written : 0u;
 }
 
 /* ---------------------------------------------------------------------------
@@ -307,6 +395,65 @@ bool ha_parse_command(const char *payload, size_t length, ha_command_t *out)
         }
     }
 
+    return true;
+}
+
+static bool is_space(char c)
+{
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+bool ha_parse_range_command(const char *payload, size_t length, uint32_t *out)
+{
+    if (payload == NULL || length == 0u || out == NULL) {
+        return false;
+    }
+
+    size_t i = 0u;
+    while (i < length && is_space(payload[i])) {
+        i++;
+    }
+    if (i < length && payload[i] == '+') {
+        i++;
+    }
+
+    uint32_t value = 0u;
+    bool has_digit = false;
+    while (i < length && payload[i] >= '0' && payload[i] <= '9') {
+        const uint32_t digit = (uint32_t)(payload[i] - '0');
+        if (value > (UINT32_MAX - digit) / 10u) {
+            return false;
+        }
+        value = value * 10u + digit;
+        has_digit = true;
+        i++;
+    }
+    if (!has_digit) {
+        return false;
+    }
+
+    /* Number entities can serialize an integral slider value as either 42 or
+       42.0. Accept only zeroes after the decimal point: silently rounding a
+       real fraction would make the state we publish disagree with its command. */
+    if (i < length && payload[i] == '.') {
+        i++;
+        const size_t fraction = i;
+        while (i < length && payload[i] == '0') {
+            i++;
+        }
+        if (i == fraction) {
+            return false;
+        }
+    }
+
+    while (i < length && is_space(payload[i])) {
+        i++;
+    }
+    if (i != length) {
+        return false;
+    }
+
+    *out = value;
     return true;
 }
 

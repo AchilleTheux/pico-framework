@@ -58,7 +58,8 @@ void render_frame(app_t *app, uint32_t now_ms)
     if (app->show_test_pattern) {
         effects_render_test_pattern(app->pixels, APP_LED_COUNT);
     } else {
-        effects_render(&app->effects, &app->light, app->pixels, APP_LED_COUNT, now_ms);
+        effects_render_range(&app->effects, &app->light, &app->range,
+                             app->pixels, APP_LED_COUNT, now_ms);
     }
 
     (void)ws2812_show_async(&app->strip);

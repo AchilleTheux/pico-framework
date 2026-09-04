@@ -9,6 +9,7 @@ add_executable(app_home_led
     app.h         # the shared context every module below is handed
 
     light.c       # the model      -- host-tested, no SDK
+    led_range.c   # the active span -- host-tested, no SDK
     effects.c     # the frames     -- host-tested, no SDK
     ha.c          # the schema     -- host-tested, no SDK
 

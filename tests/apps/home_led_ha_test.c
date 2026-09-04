@@ -34,6 +34,18 @@ TEST(topics_are_derived_from_the_device_id)
     CHECK_EQ_STR(ha.topic_command, "homeassistant/light/pico1/set");
     CHECK_EQ_STR(ha.topic_state, "homeassistant/light/pico1/state");
     CHECK_EQ_STR(ha.topic_availability, "homeassistant/light/pico1/status");
+    CHECK_EQ_STR(ha.topic_range_first_config,
+                 "homeassistant/number/pico1_range_first/config");
+    CHECK_EQ_STR(ha.topic_range_first_command,
+                 "homeassistant/light/pico1/range/first/set");
+    CHECK_EQ_STR(ha.topic_range_first_state,
+                 "homeassistant/light/pico1/range/first/state");
+    CHECK_EQ_STR(ha.topic_range_last_config,
+                 "homeassistant/number/pico1_range_last/config");
+    CHECK_EQ_STR(ha.topic_range_last_command,
+                 "homeassistant/light/pico1/range/last/set");
+    CHECK_EQ_STR(ha.topic_range_last_state,
+                 "homeassistant/light/pico1/range/last/state");
 }
 
 TEST(a_custom_discovery_prefix_is_honoured)
@@ -146,6 +158,61 @@ TEST(the_published_effect_list_is_exactly_what_the_firmware_accepts)
         CHECK(light_effect_from_name(name, &effect));
         CHECK_EQ_INT((int)effect, (int)i);
     }
+}
+
+TEST(range_discovery_builds_two_native_number_sliders)
+{
+    ha_t ha;
+    char payload[HA_DISCOVERY_BUFFER_SIZE];
+    json_value_t value;
+    int32_t number;
+
+    CHECK(ha_init(&ha, "pico1", NULL));
+    CHECK(ha_build_range_discovery(&ha, HA_RANGE_FIRST, 300u,
+                                   payload, sizeof(payload)) > 0u);
+    CHECK(json_valid(payload));
+    CHECK(json_find(payload, "name", &value));
+    CHECK(json_string_equals(&value, "Range start"));
+    CHECK(json_find(payload, "unique_id", &value));
+    CHECK(json_string_equals(&value, "pico1_range_first"));
+    CHECK(json_find(payload, "command_topic", &value));
+    CHECK(json_string_equals(&value, ha.topic_range_first_command));
+    CHECK(json_find(payload, "min", &value));
+    CHECK(json_get_int(&value, &number));
+    CHECK_EQ_INT(number, 1);
+    CHECK(json_find(payload, "max", &value));
+    CHECK(json_get_int(&value, &number));
+    CHECK_EQ_INT(number, 300);
+    CHECK(json_find(payload, "step", &value));
+    CHECK(json_get_int(&value, &number));
+    CHECK_EQ_INT(number, 1);
+    CHECK(json_find(payload, "mode", &value));
+    CHECK(json_string_equals(&value, "slider"));
+    CHECK(json_find(payload, "device", &value));
+
+    CHECK(ha_build_range_discovery(&ha, HA_RANGE_LAST, 8u,
+                                   payload, sizeof(payload)) > 0u);
+    CHECK(json_find(payload, "name", &value));
+    CHECK(json_string_equals(&value, "Range end"));
+    CHECK(json_find(payload, "state_topic", &value));
+    CHECK(json_string_equals(&value, ha.topic_range_last_state));
+    CHECK(json_find(payload, "max", &value));
+    CHECK(json_get_int(&value, &number));
+    CHECK_EQ_INT(number, 8);
+}
+
+TEST(range_discovery_refuses_invalid_arguments_and_short_buffers)
+{
+    ha_t ha;
+    char payload[64];
+
+    CHECK(ha_init(&ha, "pico1", NULL));
+    CHECK_EQ_INT(ha_build_range_discovery(&ha, HA_RANGE_FIRST, 300u,
+                                          payload, sizeof(payload)), 0);
+    CHECK_EQ_INT(ha_build_range_discovery(&ha, (ha_range_endpoint_t)99, 300u,
+                                          payload, sizeof(payload)), 0);
+    CHECK_EQ_INT(ha_build_range_discovery(&ha, HA_RANGE_FIRST, 0u,
+                                          payload, sizeof(payload)), 0);
 }
 
 TEST(a_discovery_buffer_that_is_too_small_reports_failure)
@@ -300,6 +367,24 @@ TEST(a_state_buffer_that_is_too_small_reports_failure)
     CHECK_EQ_INT((int)ha_build_state(&ha, &light, payload, sizeof(payload)), 0);
 }
 
+TEST(range_states_are_plain_one_based_numbers)
+{
+    led_range_t range;
+    char payload[HA_NUMBER_STATE_BUFFER_SIZE];
+
+    led_range_init(&range, 300u);
+    CHECK(led_range_set(&range, 75u, 180u));
+
+    CHECK_EQ_INT(ha_build_range_state(&range, HA_RANGE_FIRST,
+                                      payload, sizeof(payload)), 2);
+    CHECK_EQ_STR(payload, "75");
+    CHECK_EQ_INT(ha_build_range_state(&range, HA_RANGE_LAST,
+                                      payload, sizeof(payload)), 3);
+    CHECK_EQ_STR(payload, "180");
+    CHECK_EQ_INT(ha_build_range_state(&range, (ha_range_endpoint_t)99,
+                                      payload, sizeof(payload)), 0);
+}
+
 /* ---------------------------------------------------------------------------
  * Commands
  * -------------------------------------------------------------------------*/
@@ -436,6 +521,24 @@ TEST(a_payload_that_is_not_a_command_is_refused)
 
     /* Cut short in transit: nothing in it may be believed. */
     CHECK(!ha_parse_command("{\"brightness\":42", 16, &command));
+}
+
+TEST(range_commands_accept_only_whole_non_negative_numbers)
+{
+    uint32_t value = 999u;
+
+    CHECK(ha_parse_range_command("42", 2u, &value));
+    CHECK_EQ_U32(value, 42u);
+    const char *integral_float = "  +180.000 \r\n";
+    CHECK(ha_parse_range_command(integral_float, strlen(integral_float), &value));
+    CHECK_EQ_U32(value, 180u);
+
+    CHECK(!ha_parse_range_command("12.5", 4u, &value));
+    CHECK(!ha_parse_range_command("-1", 2u, &value));
+    CHECK(!ha_parse_range_command("12 leds", 7u, &value));
+    CHECK(!ha_parse_range_command("4294967296", 10u, &value));
+    CHECK(!ha_parse_range_command(NULL, 1u, &value));
+    CHECK(!ha_parse_range_command("1", 1u, NULL));
 }
 
 TEST(a_valid_but_empty_command_is_accepted_and_asks_for_nothing)
@@ -582,6 +685,8 @@ TEST_MAIN(
     RUN(an_unusable_device_id_is_refused_rather_than_truncated);
     RUN(the_discovery_document_says_what_home_assistant_needs_to_know);
     RUN(the_published_effect_list_is_exactly_what_the_firmware_accepts);
+    RUN(range_discovery_builds_two_native_number_sliders);
+    RUN(range_discovery_refuses_invalid_arguments_and_short_buffers);
     RUN(a_discovery_buffer_that_is_too_small_reports_failure);
     RUN(the_discovery_document_is_the_size_the_buffers_were_chosen_for);
     RUN(state_reports_rgb_mode_with_a_colour_and_no_temperature);
@@ -589,6 +694,7 @@ TEST_MAIN(
     RUN(state_reports_what_was_asked_for_not_what_the_fade_has_reached);
     RUN(state_reports_off_without_losing_the_rest);
     RUN(a_state_buffer_that_is_too_small_reports_failure);
+    RUN(range_states_are_plain_one_based_numbers);
     RUN(a_full_command_is_read_field_by_field);
     RUN(a_partial_command_leaves_everything_else_absent);
     RUN(off_is_recognised_and_is_not_just_the_absence_of_on);
@@ -598,6 +704,7 @@ TEST_MAIN(
     RUN(an_effect_name_this_firmware_does_not_have_is_reported_not_ignored);
     RUN(the_key_inside_a_value_trap);
     RUN(a_payload_that_is_not_a_command_is_refused);
+    RUN(range_commands_accept_only_whole_non_negative_numbers);
     RUN(a_valid_but_empty_command_is_accepted_and_asks_for_nothing);
     RUN(a_payload_is_read_within_its_length_not_to_a_terminator);
     RUN(applying_a_command_moves_the_light);

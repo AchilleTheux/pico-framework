@@ -55,52 +55,132 @@ static mqtt_config_t mqtt_config_of(app_t *app)
  * Publishing
  * -------------------------------------------------------------------------*/
 
-void net_publish_state(app_t *app)
+bool net_publish_state(app_t *app)
 {
     static char payload[HA_STATE_BUFFER_SIZE];
+    static char number[HA_NUMBER_STATE_BUFFER_SIZE];
 
     if (!mqtt_is_connected(&app->mqtt)) {
-        return;
+        return false;
     }
 
     const size_t length = ha_build_state(&app->ha, &app->light, payload, sizeof(payload));
     if (length == 0) {
-        return;
+        return false;
     }
 
     /* Retained, so Home Assistant knows what the light is doing as soon as it
        subscribes rather than having to wait for the next change. */
-    (void)mqtt_publish_message(&app->mqtt, app->ha.topic_state, payload,
-                               (uint16_t)length, 1, true);
+    if (mqtt_publish_message(&app->mqtt, app->ha.topic_state, payload,
+                             (uint16_t)length, 1, true) != MQTT_OK) {
+        return false;
+    }
+
+    size_t number_length = ha_build_range_state(&app->range, HA_RANGE_FIRST,
+                                                number, sizeof(number));
+    if (number_length != 0u) {
+        if (mqtt_publish_message(&app->mqtt, app->ha.topic_range_first_state,
+                                 number, (uint16_t)number_length, 1, true) != MQTT_OK) {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    number_length = ha_build_range_state(&app->range, HA_RANGE_LAST,
+                                         number, sizeof(number));
+    if (number_length != 0u) {
+        if (mqtt_publish_message(&app->mqtt, app->ha.topic_range_last_state,
+                                 number, (uint16_t)number_length, 1, true) != MQTT_OK) {
+            return false;
+        }
+    } else {
+        return false;
+    }
+
     app->published_generation = app->light.generation;
+    app->published_range_generation = app->range.generation;
     app->last_publish_ms = app_now_ms();
+    return true;
 }
 
-static void publish_discovery(app_t *app)
+typedef enum {
+    DISCOVERY_LIGHT = 0,
+    DISCOVERY_RANGE_FIRST,
+    DISCOVERY_RANGE_LAST,
+} discovery_entity_t;
+
+static bool publish_discovery(app_t *app, discovery_entity_t entity)
 {
     static char payload[HA_DISCOVERY_BUFFER_SIZE];
 
-    const size_t length = ha_build_discovery(&app->ha, payload, sizeof(payload));
+    const bool light = entity == DISCOVERY_LIGHT;
+    const ha_range_endpoint_t endpoint = entity == DISCOVERY_RANGE_FIRST
+        ? HA_RANGE_FIRST : HA_RANGE_LAST;
+    const size_t length = light
+        ? ha_build_discovery(&app->ha, payload, sizeof(payload))
+        : ha_build_range_discovery(&app->ha, endpoint, APP_LED_COUNT,
+                                   payload, sizeof(payload));
     if (length == 0) {
         cli_write(&app->cli, "\r\n[ha] the discovery document did not fit\r\n");
-        return;
+        return false;
     }
 
-    (void)mqtt_publish_message(&app->mqtt, app->ha.topic_config, payload,
-                               (uint16_t)length, 1, true);
+    const char *topic = light ? app->ha.topic_config
+        : endpoint == HA_RANGE_FIRST ? app->ha.topic_range_first_config
+                                     : app->ha.topic_range_last_config;
+    return mqtt_publish_message(&app->mqtt, topic, payload,
+                                (uint16_t)length, 1, true) == MQTT_OK;
 }
 
 void net_announce(app_t *app)
 {
     (void)mqtt_subscribe_topic(&app->mqtt, app->ha.topic_command, 1);
-    publish_discovery(app);
-    (void)mqtt_publish_message(&app->mqtt, app->ha.topic_availability, HA_AVAILABLE,
-                               (uint16_t)strlen(HA_AVAILABLE), 1, true);
-    net_publish_state(app);
+    (void)mqtt_subscribe_topic(&app->mqtt, app->ha.topic_range_first_command, 1);
+    (void)mqtt_subscribe_topic(&app->mqtt, app->ha.topic_range_last_command, 1);
 
-    cli_printf(&app->cli, "\r\n[ha] announced as %s (session %lu)\r\n", app->ha.device_id,
-               (unsigned long)mqtt_sessions(&app->mqtt));
-    cli_write_prompt(&app->cli);
+    /* The three retained discovery documents do not fit in lwIP's output ring
+       at once. net_poll() queues one at a time and retries a step until the
+       previous packet has drained rather than silently losing an entity. */
+    app->announce_step = 0u;
+    app->announce_pending = true;
+}
+
+static void poll_announcement(app_t *app)
+{
+    if (!app->announce_pending || !mqtt_is_connected(&app->mqtt)) {
+        return;
+    }
+
+    bool sent = false;
+    switch (app->announce_step) {
+        case 0u:
+            sent = publish_discovery(app, DISCOVERY_LIGHT);
+            break;
+        case 1u:
+            sent = publish_discovery(app, DISCOVERY_RANGE_FIRST);
+            break;
+        case 2u:
+            sent = publish_discovery(app, DISCOVERY_RANGE_LAST);
+            break;
+        case 3u:
+            sent = mqtt_publish_message(&app->mqtt, app->ha.topic_availability,
+                                        HA_AVAILABLE, (uint16_t)strlen(HA_AVAILABLE),
+                                        1, true) == MQTT_OK;
+            break;
+        default:
+            if (net_publish_state(app)) {
+                app->announce_pending = false;
+                cli_printf(&app->cli, "\r\n[ha] announced as %s (session %lu)\r\n",
+                           app->ha.device_id,
+                           (unsigned long)mqtt_sessions(&app->mqtt));
+                cli_write_prompt(&app->cli);
+            }
+            return;
+    }
+
+    if (sent) {
+        app->announce_step++;
+    }
 }
 
 static void on_broker_session(void *arg)
@@ -112,6 +192,24 @@ static void on_broker_message(void *arg, const char *topic, const uint8_t *paylo
                               size_t length)
 {
     app_t *app = (app_t *)arg;
+
+    if (strcmp(topic, app->ha.topic_range_first_command) == 0 ||
+        strcmp(topic, app->ha.topic_range_last_command) == 0) {
+        uint32_t value;
+        if (!ha_parse_range_command((const char *)payload, length, &value)) {
+            cli_printf(&app->cli, "\r\n[ha] unreadable range command (%u bytes)\r\n",
+                       (unsigned)length);
+            cli_write_prompt(&app->cli);
+            return;
+        }
+
+        if (strcmp(topic, app->ha.topic_range_first_command) == 0) {
+            led_range_set_first(&app->range, value);
+        } else {
+            led_range_set_last(&app->range, value);
+        }
+        return;
+    }
 
     if (strcmp(topic, app->ha.topic_command) != 0) {
         return;
@@ -190,6 +288,7 @@ void net_poll(app_t *app)
 
     wifi_poll(&app->wifi);
     mqtt_poll(&app->mqtt);
+    poll_announcement(app);
 
     const wifi_state_t wifi_now = wifi_state(&app->wifi);
     if (wifi_now != reported_wifi) {

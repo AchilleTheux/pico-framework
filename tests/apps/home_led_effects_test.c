@@ -555,6 +555,54 @@ TEST(every_effect_stays_inside_the_buffer_it_was_given)
     }
 }
 
+TEST(a_selected_range_lights_only_its_inclusive_endpoints)
+{
+    canvas_t canvas;
+    effects_t effects;
+    light_t light;
+    led_range_t range;
+
+    canvas_init(&canvas);
+    effects_init(&effects, 0);
+    prepare(&light, LIGHT_EFFECT_SOLID, 255, ws2812_rgb(12, 34, 56));
+    led_range_init(&range, STRIP);
+    CHECK(led_range_set(&range, 5u, 12u));
+
+    effects_render_range(&effects, &light, &range, canvas.pixels, STRIP, 0);
+
+    for (unsigned i = 0; i < STRIP; i++) {
+        if (i >= 4u && i < 12u) {
+            CHECK_EQ_INT(canvas.pixels[i].g, 34);
+        } else {
+            CHECK(is_black(canvas.pixels[i]));
+        }
+    }
+    CHECK(guard_intact(&canvas));
+}
+
+TEST(moving_a_range_clears_pixels_from_its_old_position)
+{
+    canvas_t canvas;
+    effects_t effects;
+    light_t light;
+    led_range_t range;
+
+    canvas_init(&canvas);
+    effects_init(&effects, 0);
+    prepare(&light, LIGHT_EFFECT_SOLID, 255, ws2812_rgb(100, 100, 100));
+    led_range_init(&range, STRIP);
+    CHECK(led_range_set(&range, 2u, 8u));
+    effects_render_range(&effects, &light, &range, canvas.pixels, STRIP, 0);
+    CHECK(!is_black(canvas.pixels[1]));
+
+    CHECK(led_range_set(&range, 20u, 24u));
+    effects_render_range(&effects, &light, &range, canvas.pixels, STRIP, 16u);
+
+    CHECK(is_black(canvas.pixels[1]));
+    CHECK(!is_black(canvas.pixels[19]));
+    CHECK(guard_intact(&canvas));
+}
+
 TEST(rendering_with_nothing_to_render_into_is_survivable)
 {
     effects_t effects;
@@ -569,6 +617,9 @@ TEST(rendering_with_nothing_to_render_into_is_survivable)
     effects_render(&effects, NULL, &pixel, 1, 0);
     effects_render(&effects, &light, NULL, 1, 0);
     effects_render(&effects, &light, &pixel, 0, 0);
+    effects_render_range(&effects, &light, NULL, &pixel, 1, 0);
+    effects_render_range(&effects, &light, NULL, NULL, 1, 0);
+    effects_render_range(&effects, &light, NULL, &pixel, 0, 0);
     effects_render_test_pattern(NULL, 4);
     effects_render_test_pattern(&pixel, 0);
 
@@ -598,5 +649,7 @@ TEST_MAIN(
     RUN(the_test_pattern_marks_both_ends_of_the_strip);
     RUN(the_test_pattern_survives_a_single_pixel_strip);
     RUN(every_effect_stays_inside_the_buffer_it_was_given);
+    RUN(a_selected_range_lights_only_its_inclusive_endpoints);
+    RUN(moving_a_range_clears_pixels_from_its_old_position);
     RUN(rendering_with_nothing_to_render_into_is_survivable);
 )

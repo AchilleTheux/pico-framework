@@ -27,6 +27,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "led_range.h"
 #include "light.h"
 #include "ws2812_color.h"
 
@@ -63,6 +64,14 @@ void effects_init(effects_t *effects, uint32_t now_ms);
  */
 void effects_render(effects_t *effects, const light_t *light,
                     ws2812_color_t *pixels, uint16_t length, uint32_t now_ms);
+
+/* Clear the complete strip and render the effect only inside `range`. This is
+ * the application-facing form: clearing first is essential when a range is
+ * moved or shortened, otherwise pixels from its old position remain latched.
+ */
+void effects_render_range(effects_t *effects, const light_t *light,
+                          const led_range_t *range, ws2812_color_t *pixels,
+                          uint16_t length, uint32_t now_ms);
 
 /*
  * A fixed pattern for checking wiring, independent of the light's state: the

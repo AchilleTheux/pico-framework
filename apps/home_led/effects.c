@@ -251,6 +251,32 @@ void effects_render(effects_t *effects, const light_t *light,
     effects->wipe_position = (uint16_t)(effects->wipe_position + WIPE_STEP_PER_FRAME);
 }
 
+void effects_render_range(effects_t *effects, const light_t *light,
+                          const led_range_t *range, ws2812_color_t *pixels,
+                          uint16_t length, uint32_t now_ms)
+{
+    if (effects == NULL || light == NULL || range == NULL ||
+        pixels == NULL || length == 0u) {
+        return;
+    }
+
+    fill_black(pixels, length);
+    const uint16_t begin = led_range_begin(range);
+    uint16_t active = led_range_length(range);
+
+    if (begin >= length) {
+        return;
+    }
+    if (active > (uint16_t)(length - begin)) {
+        active = (uint16_t)(length - begin);
+    }
+    if (active == 0u) {
+        return;
+    }
+
+    effects_render(effects, light, &pixels[begin], active, now_ms);
+}
+
 void effects_render_test_pattern(ws2812_color_t *pixels, uint16_t length)
 {
     if (pixels == NULL || length == 0) {

@@ -163,10 +163,20 @@ target_include_directories(home_led_light_test PRIVATE
     "${PICO_FRAMEWORK_ROOT}/components/ws2812/include"
 )
 
+host_test(home_led_range_test
+    SOURCES
+        tests/apps/home_led_range_test.c
+        apps/home_led/led_range.c
+)
+target_include_directories(home_led_range_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/apps/home_led"
+)
+
 host_test(home_led_effects_test
     SOURCES
         tests/apps/home_led_effects_test.c
         apps/home_led/effects.c
+        apps/home_led/led_range.c
         apps/home_led/light.c
         components/ws2812/ws2812_color.c
 )
@@ -179,6 +189,7 @@ host_test(home_led_ha_test
     SOURCES
         tests/apps/home_led_ha_test.c
         apps/home_led/ha.c
+        apps/home_led/led_range.c
         apps/home_led/light.c
         components/json/json.c
         components/ws2812/ws2812_color.c

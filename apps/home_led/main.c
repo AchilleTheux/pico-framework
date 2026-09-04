@@ -5,6 +5,7 @@
  * what it needs rather than by what it does:
  *
  *   light.c     the model -- power, brightness, colour, effect, fades
+ *   led_range.c the inclusive section of the strip selected for rendering
  *   effects.c   what a frame looks like
  *   ha.c        the Home Assistant topics, discovery document and JSON
  *   settings.c  what survives a power cut, and the commands that set it
@@ -12,7 +13,7 @@
  *   render.c    frames onto the strip, and the onboard LED
  *   console.c   the command table and the interpreter
  *
- * The first three call no Pico SDK function, so they compile into the host
+ * The first four call no Pico SDK function, so they compile into the host
  * tests. The rest is wiring, and shares one app_t rather than a drawer of
  * file statics -- see app.h.
  *
@@ -47,8 +48,11 @@ int main(void)
 
     settings_load(&app, started_ms);
     app.saved_generation = app.light.generation;
+    app.saved_range_generation = app.range.generation;
     app.published_generation = app.light.generation;
+    app.published_range_generation = app.range.generation;
     app.seen_generation = app.light.generation;
+    app.seen_range_generation = app.range.generation;
     app.last_change_ms = started_ms;
 
     effects_init(&app.effects, started_ms);
@@ -98,29 +102,34 @@ int main(void)
         }
 
         /*
-         * Note when the light last changed, so the flash write can wait for
+         * Note when the light or range last changed, so the flash write can wait for
          * the fiddling to stop.
          *
-         * Driven by the generation counter itself rather than by what has
+         * Driven by the generation counters themselves rather than by what has
          * been published: net_publish_state() does nothing while there is no
          * broker session, so keying this off it would restart the timer on
          * every loop and a board running from the console alone would never
          * save anything at all.
          */
-        if (app.light.generation != app.seen_generation) {
+        if (app.light.generation != app.seen_generation ||
+            app.range.generation != app.seen_range_generation) {
             app.seen_generation = app.light.generation;
+            app.seen_range_generation = app.range.generation;
             app.last_change_ms = now_ms;
         }
 
-        if (app.light.generation != app.published_generation &&
+        if ((app.light.generation != app.published_generation ||
+             app.range.generation != app.published_range_generation) &&
             now_ms - app.last_publish_ms >= PUBLISH_INTERVAL_MS) {
-            net_publish_state(&app);
+            (void)net_publish_state(&app);
         }
 
-        if (app.light.generation != app.saved_generation &&
+        if ((app.light.generation != app.saved_generation ||
+             app.range.generation != app.saved_range_generation) &&
             now_ms - app.last_change_ms >= SAVE_QUIET_MS) {
             if (settings_store(&app)) {
                 app.saved_generation = app.light.generation;
+                app.saved_range_generation = app.range.generation;
             } else {
                 /* Try again after another quiet period rather than spinning
                    on a failing flash write every loop. */

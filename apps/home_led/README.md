@@ -15,7 +15,7 @@ built to do; what has actually been demonstrated is:
 
 | | |
 |---|---|
-| Host tests | 75, across the light model (27), the effects (20) and the Home Assistant schema (28), under ASan and UBSan |
+| Host tests | 88, across the light model (27), LED ranges (7), effects (22) and the Home Assistant schema (32), under ASan and UBSan |
 | Cross-builds | `pico2_w`, `pico_w`, `pico2` (no radio), both profiles, warnings as errors |
 | On a Pico 2 W | everything except the strip — see below |
 | On a strip | the wire order and the primaries; the rest still unseen |
@@ -99,8 +99,12 @@ led> connect
 ```
 
 After that the board needs no console: it associates, connects to the broker,
-publishes its discovery document, and Home Assistant shows a light called
-"LED strip" under a device named after `deviceid`.
+publishes its discovery documents, and Home Assistant shows a light called
+"LED strip" plus `Range start` and `Range end` Number sliders under a device
+named after `deviceid`. The sliders run from 1 to the profile's
+`APP_LED_COUNT`; colour, brightness and effects are rendered only between
+their inclusive endpoints. If one slider crosses the other, it carries the
+other endpoint with it so the selection remains valid.
 
 `haprefix` changes the discovery prefix if Home Assistant has been configured
 away from `homeassistant`.
@@ -120,6 +124,8 @@ led> rgb 255 128 0
 led> ct 370                  colour temperature in mireds, 153..500
 led> effect                  list the effects
 led> effect Twinkle
+led> range 75 180            light only LEDs 75 through 180, inclusive
+led> range                   show the active range
 led> status                  the light, the strip, the link and the broker
 led> announce                republish the discovery document
 ```
@@ -181,6 +187,7 @@ app.h       the one context every module below is handed
 
 light.c     the model -- power, brightness, RGB or colour temperature,
             effect, and the two fades          <- no SDK, host-tested
+led_range.c the active, inclusive LED span     <- no SDK, host-tested
 effects.c   what reaches the strip, per effect <- no SDK, host-tested
 ha.c        the Home Assistant topics, discovery document and JSON
                                                <- no SDK, host-tested
@@ -191,7 +198,7 @@ render.c    frames onto the strip, and keeps the onboard LED off
 console.c   the command table and the interpreter
 ```
 
-The first three call no SDK function, so all three compile directly into the
+The first four call no SDK function, so all four compile directly into the
 host tests — `tests/apps/home_led_*_test.c`. That is the same split `ws2812.c`
 and `ws2812_color.c` use, applied to an application: it leaves the wiring as
 the only part that needs hardware to judge.

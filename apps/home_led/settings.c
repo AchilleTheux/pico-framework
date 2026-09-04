@@ -29,6 +29,8 @@
 #define KEY_LIGHT_MIREDS "light_ct"
 #define KEY_LIGHT_MODE "light_mode"
 #define KEY_LIGHT_EFFECT "light_effect"
+#define KEY_RANGE_FIRST "led_first"
+#define KEY_RANGE_LAST "led_last"
 
 /* ---------------------------------------------------------------------------
  * Loading and storing
@@ -84,11 +86,28 @@ static void load_light(app_t *app, uint32_t now_ms)
     light_restore(&app->light, &stored, now_ms);
 }
 
+static void load_range(app_t *app)
+{
+    config_store_t *store = persistent_config_store(&app->config);
+    uint32_t first;
+    uint32_t last;
+
+    config_get_u32(store, KEY_RANGE_FIRST, &first, 1u);
+    config_get_u32(store, KEY_RANGE_LAST, &last, APP_LED_COUNT);
+
+    /* Values larger than uint16_t are invalid stored data, and deliberately
+       become zero here so led_range_restore() selects its safe full default. */
+    const uint16_t saved_first = first <= UINT16_MAX ? (uint16_t)first : 0u;
+    const uint16_t saved_last = last <= UINT16_MAX ? (uint16_t)last : 0u;
+    led_range_restore(&app->range, (uint16_t)APP_LED_COUNT, saved_first, saved_last);
+}
+
 void settings_load(app_t *app, uint32_t now_ms)
 {
     persistent_config_load(&app->config, app->config_buffer, sizeof(app->config_buffer));
     load_strings(app);
     load_light(app, now_ms);
+    load_range(app);
 }
 
 bool settings_store(app_t *app)
@@ -107,6 +126,8 @@ bool settings_store(app_t *app)
     config_set_u32(store, KEY_LIGHT_MIREDS, current.mireds);
     config_set_u32(store, KEY_LIGHT_MODE, (uint32_t)current.color_mode);
     config_set_u32(store, KEY_LIGHT_EFFECT, (uint32_t)current.effect);
+    config_set_u32(store, KEY_RANGE_FIRST, led_range_first(&app->range));
+    config_set_u32(store, KEY_RANGE_LAST, led_range_last(&app->range));
 
     return persistent_config_save(&app->config) == PERSISTENT_CONFIG_OK;
 }
@@ -198,6 +219,7 @@ static int cmd_save(cli_t *c, void *user_data)
         return CLI_ERR_FAILED;
     }
     app->saved_generation = app->light.generation;
+    app->saved_range_generation = app->range.generation;
     cli_write(c, "ok\r\n");
     return CLI_OK;
 }

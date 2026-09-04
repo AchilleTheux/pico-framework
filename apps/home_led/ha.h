@@ -21,11 +21,11 @@
  *
  * DISCOVERY
  *
- * Home Assistant finds MQTT devices by their retained announcement on
- * `<prefix>/light/<id>/config`. It has to be republished on every reconnect --
- * see mqtt's on_connect -- because a broker with a clean session will not have
- * kept this client's, and a restarted Home Assistant reads only what is
- * retained.
+ * Home Assistant finds the light and its two Number controls through retained
+ * announcements below `<prefix>/light/...` and `<prefix>/number/...`. They
+ * have to be republished on every reconnect -- see mqtt's on_connect --
+ * because a broker with a clean session may not have kept this client's, and
+ * a restarted Home Assistant reads only what is retained.
  */
 
 #ifndef HOME_LED_HA_H
@@ -35,6 +35,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "led_range.h"
 #include "light.h"
 
 /* Long enough for "homeassistant/light/<id>/status" with room to spare, and
@@ -50,6 +51,7 @@
  */
 #define HA_DISCOVERY_BUFFER_SIZE 1024u
 #define HA_STATE_BUFFER_SIZE 256u
+#define HA_NUMBER_STATE_BUFFER_SIZE 8u
 
 /* What a device publishes to say it is reachable. Also the will message, so
    the broker says it for us when the board disappears without warning. */
@@ -65,10 +67,23 @@ typedef struct {
     char topic_command[HA_TOPIC_MAX_LENGTH + 1];
     char topic_state[HA_TOPIC_MAX_LENGTH + 1];
     char topic_availability[HA_TOPIC_MAX_LENGTH + 1];
+
+    char topic_range_first_config[HA_TOPIC_MAX_LENGTH + 1];
+    char topic_range_first_command[HA_TOPIC_MAX_LENGTH + 1];
+    char topic_range_first_state[HA_TOPIC_MAX_LENGTH + 1];
+    char topic_range_last_config[HA_TOPIC_MAX_LENGTH + 1];
+    char topic_range_last_command[HA_TOPIC_MAX_LENGTH + 1];
+    char topic_range_last_state[HA_TOPIC_MAX_LENGTH + 1];
 } ha_t;
 
+typedef enum {
+    HA_RANGE_FIRST = 0,
+    HA_RANGE_LAST,
+} ha_range_endpoint_t;
+
 /*
- * Derive the four topics from a device id.
+ * Derive the light's four topics and the six range-control topics from a
+ * device id.
  *
  * `discovery_prefix` is Home Assistant's, "homeassistant" unless it has been
  * changed there; NULL selects that default. False if the id is empty or the
@@ -90,6 +105,12 @@ bool ha_init(ha_t *ha, const char *device_id, const char *discovery_prefix);
  */
 size_t ha_build_discovery(const ha_t *ha, char *out, size_t size);
 
+/* Discovery for either native MQTT Number slider. `led_count` becomes the
+   slider maximum, so the installed and bench profiles advertise themselves
+   accurately without a Home Assistant-side setting. */
+size_t ha_build_range_discovery(const ha_t *ha, ha_range_endpoint_t endpoint,
+                                uint16_t led_count, char *out, size_t size);
+
 /*
  * The light's current settings, in the shape Home Assistant's JSON schema
  * expects. Reports what has been *asked for* rather than what a fade has
@@ -98,12 +119,16 @@ size_t ha_build_discovery(const ha_t *ha, char *out, size_t size);
  */
 size_t ha_build_state(const ha_t *ha, const light_t *light, char *out, size_t size);
 
+/* MQTT Number states are plain numbers rather than JSON documents. */
+size_t ha_build_range_state(const led_range_t *range, ha_range_endpoint_t endpoint,
+                            char *out, size_t size);
+
 /* ---------------------------------------------------------------------------
  * Incoming
  * -------------------------------------------------------------------------*/
 
 /*
- * One command from `<prefix>/light/<id>/set`.
+ * One light command from `<prefix>/light/<id>/set`.
  *
  * Every field is optional and flagged, because Home Assistant sends only what
  * changed -- a brightness drag is `{"brightness":140}` with nothing else, and
@@ -143,6 +168,10 @@ typedef struct {
  * not an error.
  */
 bool ha_parse_command(const char *payload, size_t length, ha_command_t *out);
+
+/* Parse the integer payload sent by an MQTT Number. An integral spelling such
+   as "42.0" is accepted too; fractions and trailing junk are refused. */
+bool ha_parse_range_command(const char *payload, size_t length, uint32_t *out);
 
 /*
  * Apply whichever fields were present, in the order Home Assistant means them:

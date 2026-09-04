@@ -29,15 +29,17 @@ void net_start_if_configured(app_t *app);
 void net_poll(app_t *app);
 
 /*
- * Publish the light's state, retained. Does nothing without a session, which
- * is why the main loop's save timer is driven by the light's generation
- * counter and not by this.
+ * Publish the light and both range endpoint states, retained. False if there
+ * is no session or the output ring cannot accept the complete state set; the
+ * main loop then retries without losing the generation that needs publishing.
  */
-void net_publish_state(app_t *app);
+bool net_publish_state(app_t *app);
 
 /*
- * Everything a new broker session has to re-establish: the subscription, the
- * retained discovery document, the availability message and the state.
+ * Everything a new broker session has to re-establish: three subscriptions,
+ * the light and Number discovery documents, availability, and their states.
+ * The retained documents are queued incrementally by net_poll() because they
+ * are deliberately not required to fit in the MQTT output ring all at once.
  *
  * Registered as mqtt's on_connect, so it runs on the first session and every
  * reconnection -- lwIP always connects with the clean-session flag set, so
