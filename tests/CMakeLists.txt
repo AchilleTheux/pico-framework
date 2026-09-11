@@ -75,6 +75,43 @@ endfunction()
 # Tests
 # ---------------------------------------------------------------------------
 
+host_test(mcp2518fd_frame_test SOURCES
+    tests/components/mcp2518fd_frame_test.c
+    components/mcp2518fd/mcp2518fd_frame.c
+    components/can_frame/can_fd_frame.c
+    components/can_frame/can_frame.c
+    components/ring_buffer/ring_buffer.c
+)
+target_include_directories(mcp2518fd_frame_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/mcp2518fd/include"
+    "${PICO_FRAMEWORK_ROOT}/components/can_frame/include"
+    "${PICO_FRAMEWORK_ROOT}/components/ring_buffer/include"
+)
+host_test(mcp2518fd_timing_test SOURCES
+    tests/components/mcp2518fd_timing_test.c
+    components/mcp2518fd/mcp2518fd_timing.c
+)
+target_include_directories(mcp2518fd_timing_test PRIVATE
+    "${PICO_FRAMEWORK_ROOT}/components/mcp2518fd/include"
+)
+
+# SDK shims model SPI transactions and faults, not electrical CAN behaviour.
+host_test(mcp2518fd_driver_test SOURCES
+    tests/components/mcp2518fd_driver_test.c
+    components/mcp2518fd/mcp2518fd.c
+    components/mcp2518fd/mcp2518fd_frame.c
+    components/mcp2518fd/mcp2518fd_timing.c
+    components/can_frame/can_fd_frame.c
+    components/can_frame/can_frame.c
+    components/ring_buffer/ring_buffer.c
+)
+target_include_directories(mcp2518fd_driver_test PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/support/mcp2518fd"
+    "${PICO_FRAMEWORK_ROOT}/components/mcp2518fd/include"
+    "${PICO_FRAMEWORK_ROOT}/components/can_frame/include"
+    "${PICO_FRAMEWORK_ROOT}/components/ring_buffer/include"
+)
+
 host_test(ws2812_color_test
     SOURCES
         tests/components/ws2812_color_test.c

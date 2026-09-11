@@ -39,9 +39,10 @@ host coverage, build coverage, and physical hardware validation.
 | [`udp`](components/udp/) | UDP datagrams on that link, unicast and broadcast |
 | [`json`](components/json/) | reading and writing small JSON documents, no allocation |
 | [`bluetooth`](components/bluetooth/) | a serial console over Classic Bluetooth SPP |
-| [`can_frame`](components/can_frame/) | CAN frame, filter, and queue types, shared by both controllers |
+| [`can_frame`](components/can_frame/) | Shared classic CAN / CAN FD frames, filters, and classic receive queues |
 | [`can`](components/can/) | CAN 2.0B over one PIO block with can2040 |
 | [`mcp2515`](components/mcp2515/) | CAN 2.0B over an MCP2515 / XL2515 SPI controller |
+| [`mcp2518fd`](components/mcp2518fd/) | Classic CAN and CAN FD over SPI, including 64-byte payloads and bit-rate switching |
 
 Updating a board over a serial link, with no USB involved, is built from these:
 `hex_parser` decodes the image, `firmware_update` receives and verifies it,
@@ -76,7 +77,7 @@ A second run on that board, against `broker.hivemq.com`, covers `mqtt`'s
 default output ring buffer, received intact by an independent subscriber, and
 re-subscribed automatically after a forced session drop.
 
-Both CAN controllers are now hardware-proven, and proven against each other:
+The two classic CAN backends are hardware-proven, and proven against each other:
 [`can`](components/can/) driving a transceiver from a PIO block and a Waveshare
 RP2350-CAN running [`mcp2515`](components/mcp2515/) on its onboard XL2515, on
 one bus, acknowledging each other's standard, extended, and RTR frames at
@@ -98,6 +99,11 @@ to reject. It is fixed, and the host tests now pin where a mask's bits land in
 each layout — the previous tests checked only that the planned mask equalled
 the caller's, never how it was written. See
 [`mcp2515`'s README](components/mcp2515/README.md).
+
+The additional [`mcp2518fd`](components/mcp2518fd/) SPI backend supports classic
+CAN and CAN FD. It has host tests and RP2040/RP2350 build coverage, but has not
+yet been validated on hardware. Its [bench app](apps/tests/mcp2518fd_test/)
+includes classic, FD, loopback, monitor, and filter profiles.
 
 Real I2C devices and smart servos still await the hardware listed by their test
 applications. The serial firmware installer has

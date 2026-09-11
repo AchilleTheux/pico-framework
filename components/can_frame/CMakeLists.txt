@@ -7,6 +7,7 @@
 
 add_library(pico_framework_can_frame STATIC
     can_frame.c
+    can_fd_frame.c
 )
 
 add_library(pico_framework::can_frame ALIAS pico_framework_can_frame)
@@ -15,7 +16,7 @@ target_include_directories(pico_framework_can_frame PUBLIC
     include
 )
 
-pico_framework_set_warnings(can_frame.c)
+pico_framework_set_warnings(can_frame.c can_fd_frame.c)
 
 target_link_libraries(pico_framework_can_frame PUBLIC
     pico_stdlib

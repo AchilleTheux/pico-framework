@@ -39,6 +39,7 @@ set(PICO_FRAMEWORK_COMPONENTS
     can_frame
     can
     mcp2515
+    mcp2518fd
 )
 
 function(pico_framework_add_components)
