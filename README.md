@@ -61,7 +61,7 @@ validated both radio components: `wifi` (association, address acquisition, RSSI,
 reconnection both from a console `connect` and from stored credentials after
 a power cycle — see [`wifi`'s README](components/wifi/README.md) for a real
 console-unresponsiveness bug found, root-caused to a Pico SDK 2.3.0 RP2350
-regression, and worked around during that validation) and
+regression, and worked around during that validation; fixed upstream in 2.3.1) and
 `bluetooth` (pairing with no PIN prompt, the SDP serial-port record, and
 RFCOMM flow control under a deliberate flood — that validation found and
 fixed a real bug in the test application itself, not the component; see
@@ -391,7 +391,7 @@ verified with:
 
 | Tool                | Version pinned / verified            |
 |---------------------|--------------------------------------|
-| Pico SDK            | `2.3.0` (submodule, detached tag)     |
+| Pico SDK            | `2.3.1` (submodule, detached tag)     |
 | can2040             | `2988d4f` (submodule)                 |
 | CMake               | 4.3.0 (minimum required: 3.13)        |
 | `arm-none-eabi-gcc` | 15.2.0                                |
@@ -423,11 +423,11 @@ The initial roadmap in DESIGN_DOC.md section 24 is complete. Further work is
 driven by actual project needs rather than another architecture phase:
 
 - validate CAN, smart servos, and VL53L0X on the required hardware;
-- the narrow `CYW43_CONFIG_FILE` workaround for the Pico SDK 2.3.0 RP2350
-  timed-wait regression has passed the AP-off hardware test (2026-09-01);
-  remove it when the SDK pin advances to a release containing the upstream
-  fix (tracked as [pico-sdk#3078](https://github.com/raspberrypi/pico-sdk/issues/3078)
-  / [#3148](https://github.com/raspberrypi/pico-sdk/issues/3148));
+- repeat the `wifi_test` AP-off hardware test on Pico SDK 2.3.1, which fixes
+  the RP2350 timed-wait regression upstream
+  ([pico-sdk#3078](https://github.com/raspberrypi/pico-sdk/issues/3078) /
+  [#3148](https://github.com/raspberrypi/pico-sdk/issues/3148)); the
+  framework's own workaround for it has been removed;
 - run [`tcp_test`](apps/tests/tcp_test/) and [`udp_test`](apps/tests/udp_test/)
   against a peer on a real network, which is the only thing that can settle
   lwIP's window behaviour, the receive back-pressure path, and whether an access

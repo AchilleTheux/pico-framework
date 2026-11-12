@@ -153,7 +153,7 @@ comes back. Upstream: RP2350 alarm/sleep issue
 [raspberrypi/pico-sdk#3078](https://github.com/raspberrypi/pico-sdk/issues/3078),
 CYW43-specific backtrace through this exact call chain
 [raspberrypi/pico-sdk#3148](https://github.com/raspberrypi/pico-sdk/issues/3148),
-both tracked against SDK 2.3.1.
+both closed as fixed in SDK 2.3.1.
 
 Rebuilding the identical `wifi_test` image against **Pico SDK 2.2.0**, with no
 other change, and repeating the same AP-off test for 60+ seconds: the console
@@ -166,28 +166,16 @@ already uses the async join call as intended — nor is it evidence that
 `wifi_poll()` needs its own core; that was this document's original
 (incorrect) conclusion before the SDK version was implicated.
 
-The framework keeps SDK 2.3.0 and applies the narrow workaround through
-cyw43-driver's supported `CYW43_CONFIG_FILE` hook. On RP2350 + SDK 2.3.0 only,
-[`pico_framework_cyw43_config.h`](../../cmake/include/pico_framework_cyw43_config.h)
-replaces `CYW43_DO_IOCTL_WAIT` and `CYW43_SDPCM_SEND_COMMON_WAIT` with bounded
-1 ms `busy_wait_us_32()` calls. This changes no radio protocol or timeout: it
-only avoids the defective hardware-alarm sleep while an ioctl already owns
-the caller. Bluetooth receives the same configuration because it shares the
-CYW43 driver. The CMake version guard stops selecting the override once the
-SDK pin advances beyond 2.3.0, so the workaround cannot silently outlive the
-upstream regression.
+SDK 2.3.0 was worked around with a `CYW43_CONFIG_FILE` override that replaced
+`CYW43_DO_IOCTL_WAIT` and `CYW43_SDPCM_SEND_COMMON_WAIT` with bounded 1 ms
+`busy_wait_us_32()` calls; that build passed the AP-off hardware test on
+2026-09-01. Pico SDK 2.3.1 reworked `pico_time`/`pico_sync` and closed both
+issues above, so the framework now pins 2.3.1 and the override has been
+removed (2026-11-12).
 
-The 2.2.0 A/B test confirms the diagnosis, and the 2.3.0-with-workaround build
-has since passed the identical AP-off hardware test (2026-09-01): preprocessed
-output confirmed both macros resolve to `busy_wait_us_32(1000)` in the built
-object, not the semaphore wait, and a 60+ second AP-down run on a Pico 2 W
-answered every `ping` within about a second, cycled `connecting` /
-`waiting to retry` normally throughout, and reassociated cleanly the moment
-the access point came back. Even with the workaround, CYW43 command
-submission remains synchronous and may consume up to its bounded driver
-timeout, so `wifi_poll()` is cooperative rather than a hard real-time call —
-the fix bounds the stall to about a millisecond per wait, it does not make
-the call reentrant.
+CYW43 command submission remains synchronous and may consume up to its
+bounded driver timeout, so `wifi_poll()` is cooperative rather than a hard
+real-time call.
 
 ## Status
 
@@ -195,9 +183,10 @@ Association, address acquisition, RSSI, and reconnection after both a
 console-driven `connect` and a power cycle (from stored credentials) have all
 run successfully on a Pico 2 W. The retry attempt counter climbs as expected
 while an access point is down. The AP-off responsiveness test has now passed
-on both SDK 2.2.0 (unmodified) and SDK 2.3.0 with the framework's
-`CYW43_CONFIG_FILE` workaround enabled — console stayed responsive throughout
-in both cases.
+on both SDK 2.2.0 (unmodified) and SDK 2.3.0 with the former
+`CYW43_CONFIG_FILE` workaround — console stayed responsive throughout in both
+cases. It has not yet been repeated on the current pin, SDK 2.3.1, which
+relies on the upstream fix.
 
 ## Testing
 
@@ -206,6 +195,6 @@ in both cases.
 * Hardware: `make BOARD=pico2_w APP=tests/wifi_test flash`, then `ssid`,
   `password`, `save`, `connect`. Credentials survive a power cycle and it
   reconnects on its own. Turning the access point off and back on is the
-  interesting test: with the framework workaround enabled, `ping` and
-  `wifistatus` remain responsive throughout the outage and reconnection —
-  validated on hardware 2026-09-01.
+  interesting test: `ping` and `wifistatus` must remain responsive throughout
+  the outage and reconnection (validated on SDK 2.3.0 with the former
+  workaround, 2026-09-01; pending on 2.3.1).

@@ -64,10 +64,10 @@ responding for stretches of step 3** — measured over ten minutes in one run.
 This is a reported RP2350 timed-wait regression in that SDK release, not a
 hang specific to this test or a design flaw in `wifi.c`; the same image
 rebuilt against SDK 2.2.0, with no other change, stayed continuously
-responsive through the identical test. The framework now overrides the two
-affected CYW43 waits with bounded busy waits on RP2350 + SDK 2.3.0, so this
-test also validates that workaround: the console must remain responsive for
-the whole outage. See [`wifi`'s
+responsive through the identical test. SDK 2.3.1, the current pin, fixes the
+regression upstream and the framework's former workaround has been removed,
+so this test now validates the upstream fix: the console must remain
+responsive for the whole outage. See [`wifi`'s
 README](../../../components/wifi/README.md#a-retry-can-block-the-whole-application-not-just-this-component)
 for the confirmed call chain and the upstream issue links.
 
